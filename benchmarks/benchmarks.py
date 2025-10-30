@@ -9,10 +9,7 @@ import platform
 BENCHMARK_JSON = Path(sys.argv[0]).parent / 'benchmarks.json'
 
 def load_cases():
-    if sys.version_info[:2] < (3,10):
-        from importlib_metadata import version
-    else:
-        from importlib.metadata import version
+    from importlib.metadata import version
 
     git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
                               capture_output=True, text=True).stdout.strip()

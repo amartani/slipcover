@@ -189,10 +189,7 @@ import importlib.resources as r
 import imported
 
 def test():
-    if sys.version_info >= (3, 12):
-        assert list(r.files('imported').iterdir()) != []
-    else:
-        assert list(r.contents('imported')) != []
+    assert list(r.files('imported').iterdir()) != []
 """)
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile])

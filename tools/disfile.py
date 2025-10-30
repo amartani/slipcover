@@ -72,6 +72,5 @@ if args.instrument:
 
 dis.dis(code)
 
-if sys.version_info[0:2] >= (3,11):
-    decode_linetable(code)
+decode_linetable(code)
 

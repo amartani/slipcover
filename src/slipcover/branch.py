@@ -1,21 +1,17 @@
 import ast
-import sys
 from typing import List, Union
 
-BRANCH_NAME = "_slipcover_branches"
+def is_branch(line):
+    return (line & (1<<30)) != 0
 
-if sys.version_info[0:2] >= (3,12):
-    def is_branch(line):
-        return (line & (1<<30)) != 0
+def encode_branch(from_line, to_line):
+    # FIXME anything bigger, and we get an overflow... encode to_line as relative number?
+    assert from_line <= 0x7FFF, f"Line number {from_line} too high, unable to add branch tracking"
+    assert to_line <= 0x7FFF, f"Line number {to_line} too high, unable to add branch tracking"
+    return (1<<30)|((from_line & 0x7FFF)<<15)|(to_line&0x7FFF)
 
-    def encode_branch(from_line, to_line):
-        # FIXME anything bigger, and we get an overflow... encode to_line as relative number?
-        assert from_line <= 0x7FFF, f"Line number {from_line} too high, unable to add branch tracking"
-        assert to_line <= 0x7FFF, f"Line number {to_line} too high, unable to add branch tracking"
-        return (1<<30)|((from_line & 0x7FFF)<<15)|(to_line&0x7FFF)
-
-    def decode_branch(line):
-        return ((line>>15)&0x7FFF, line&0x7FFF)
+def decode_branch(line):
+    return ((line>>15)&0x7FFF, line&0x7FFF)
 
 EXIT = 0
 
@@ -27,37 +23,15 @@ def preinstrument(tree: ast.Module) -> ast.Module:
             pass
 
         def _mark_branch(self, from_line: int, to_line: int) -> List[ast.stmt]:
-            if sys.version_info[0:2] >= (3,12):
-                # Using a constant Expr allows the compiler to optimize this to a NOP
-                mark = ast.Expr(ast.Constant(None))
-                for node in ast.walk(mark):
-                    node.lineno = node.end_lineno = encode_branch(from_line, to_line) # type: ignore[attr-defined]
-                    # Leaving the columns unitialized can lead to invalid positions despite
-                    # our use of ast.fix_missing_locations
-                    node.col_offset = node.end_col_offset = -1 # type: ignore[attr-defined]
-            else:
-                mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
-                                   ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
-                if sys.version_info[0:2] == (3,11):
-                    for node in ast.walk(mark):
-                        node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
-                else:
-                    for node in ast.walk(mark):
-                        node.lineno = from_line # type: ignore[attr-defined]
+            # Using a constant Expr allows the compiler to optimize this to a NOP
+            mark = ast.Expr(ast.Constant(None))
+            for node in ast.walk(mark):
+                node.lineno = node.end_lineno = encode_branch(from_line, to_line) # type: ignore[attr-defined]
+                # Leaving the columns unitialized can lead to invalid positions despite
+                # our use of ast.fix_missing_locations
+                node.col_offset = node.end_col_offset = -1 # type: ignore[attr-defined]
 
             return [mark]
-
-        if sys.version_info[0:2] < (3,12):
-            def visit_FunctionDef(self, node: Union[ast.AsyncFunctionDef, ast.FunctionDef]) -> ast.AST:
-                # Mark BRANCH_NAME global, so that our assignments are easier to find (only STORE_NAME/STORE_GLOBAL,
-                # but not STORE_FAST, etc.)
-                has_docstring = ast.get_docstring(node, clean=False) is not None
-                node.body.insert(1 if has_docstring else 0, ast.Global([BRANCH_NAME]))
-                super().generic_visit(node)
-                return node
-
-            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-                return self.visit_FunctionDef(node)
 
         def _mark_branches(self, node: Union[ast.If, ast.For, ast.AsyncFor, ast.While]) -> ast.AST:
             node.body = self._mark_branch(node.lineno, node.body[0].lineno) + node.body
@@ -83,34 +57,26 @@ def preinstrument(tree: ast.Module) -> ast.Module:
         def visit_While(self, node: ast.While) -> ast.AST:
             return self._mark_branches(node)
 
-        if sys.version_info >= (3,10): # new in Python 3.10
-            def visit_Match(self, node: ast.Match) -> ast.Match:
-                for case in node.cases:
-                    case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
+        def visit_Match(self, node: ast.Match) -> ast.Match:
+            for case in node.cases:
+                case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
 
-                last_pattern = case.pattern  # case is node.cases[-1]
-                while isinstance(last_pattern, ast.MatchOr):
-                    last_pattern = last_pattern.patterns[-1]
+            last_pattern = case.pattern  # case is node.cases[-1]
+            while isinstance(last_pattern, ast.MatchOr):
+                last_pattern = last_pattern.patterns[-1]
 
-                has_wildcard = case.guard is None and isinstance(last_pattern, ast.MatchAs) and last_pattern.pattern is None
-                if not has_wildcard:
-                    to_line = node.next_node.lineno if node.next_node else EXIT # type: ignore[attr-defined]
-                    node.cases.append(ast.match_case(ast.MatchAs(),
-                                                     body=self._mark_branch(node.lineno, to_line)))
+            has_wildcard = case.guard is None and isinstance(last_pattern, ast.MatchAs) and last_pattern.pattern is None
+            if not has_wildcard:
+                to_line = node.next_node.lineno if node.next_node else EXIT # type: ignore[attr-defined]
+                node.cases.append(ast.match_case(ast.MatchAs(),
+                                                 body=self._mark_branch(node.lineno, to_line)))
 
-                super().generic_visit(node)
-                return node
+            super().generic_visit(node)
+            return node
 
 
-    if sys.version_info >= (3,10):
-        match_type = ast.Match
-    else:
-        match_type = tuple() # matches nothing
-
-    if sys.version_info >= (3,11):
-        try_type = (ast.Try, ast.TryStar)
-    else:
-        try_type = ast.Try
+    match_type = ast.Match
+    try_type = (ast.Try, ast.TryStar)
 
     # Compute the "next" statement in case a branch flows control out of a node.
     # We need a parent node's "next" computed before its siblings, so we compute it here, in BFS;
