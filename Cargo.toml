@@ -1,0 +1,19 @@
+[package]
+name = "slipcover"
+version = "1.0.17"
+edition = "2021"
+rust-version = "1.56"
+
+[lib]
+name = "slipcover_core"
+crate-type = ["cdylib"]
+path = "src_rust/lib.rs"
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }
+ahash = "0.8"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
