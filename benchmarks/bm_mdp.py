@@ -3,14 +3,7 @@ from collections import defaultdict
 from fractions import Fraction
 
 import pyperf
-
-# Disable @profile if not defined.
-try:
-    # Python 2
-    import __builtin__ as builtins
-except ImportError:
-    # Python 3
-    import builtins
+import builtins
 
 try:
     builtins.profile

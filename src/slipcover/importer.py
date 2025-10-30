@@ -3,26 +3,11 @@ from .slipcover import Slipcover
 from .version import __version__
 from . import branch as br
 from pathlib import Path
-import sys
 import sysconfig
 
 from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
-
-if sys.version_info >= (3, 12):
-    from importlib.resources.abc import TraversableResources
-elif sys.version_info >= (3, 11):
-    from importlib.resources.abc import ResourceReader as TraversableResources
-else:
-    from importlib.abc import ResourceReader as TraversableResources
-
-
-if sys.version_info[0:2] < (3,9):
-    # Path.is_relative_to is new in Python 3.9
-    def is_relative_to(self: Path, other: str) -> bool:
-        other = Path(other)
-        return other == self or other in self.parents
-    setattr(Path, 'is_relative_to', is_relative_to)
+from importlib.resources.abc import TraversableResources
 
 
 class SlipcoverLoader(Loader):

@@ -4,8 +4,6 @@ import slipcover.branch as br
 import sys
 
 
-PYTHON_VERSION = sys.version_info[0:2]
-
 def ast_parse(s):
     import inspect
     return ast.parse(inspect.cleandoc(s))
@@ -16,26 +14,6 @@ def get_branches(code):
     return sorted(Slipcover.branches_from_code(code))
 
 
-if PYTHON_VERSION < (3,12):
-    def assign2append(tree: ast.AST):
-        """Converts our assign-based markup to appends, so that tests can check for branches detected."""
-        class a2av(ast.NodeTransformer):
-            def __init__(self):
-                pass
-
-            def visit_Assign(self, node: ast.Assign) -> ast.Assign:
-                if node.targets and isinstance(node.targets[0], ast.Name) \
-                   and node.targets[0].id == br.BRANCH_NAME:
-                    return ast.AugAssign(
-                            target=node.targets[0],
-                            op=ast.Add(),
-                            value=ast.List(elts=[node.value], ctx=ast.Load()))
-
-                return node
-
-        tree = a2av().visit(tree)
-        ast.fix_missing_locations(tree)
-        return tree
 
 
 def check_locations(node: ast.AST):
@@ -73,9 +51,6 @@ def test_if():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,4)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -105,9 +80,6 @@ def test_if_else():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,6)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -137,9 +109,6 @@ def test_if_elif_else():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,3), (3,4), (3,6)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 1, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -159,9 +128,6 @@ def test_if_nothing_after_it():
     code = compile(t, "foo", "exec")
     assert [(1,0), (1,2)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -194,9 +160,6 @@ def test_if_nested():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,7), (3,4), (3,11), (4,5), (4,11), (8,9), (8,10)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -234,9 +197,6 @@ def test_if_in_function():
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,3), (6,0), (6,7), (11,0), (11,12)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -313,9 +273,6 @@ def test_for():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,5), (2,1), (2,3)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -348,9 +305,6 @@ def test_async_for():
     code = compile(t, "foo", "exec")
     assert [(10,11), (10,13), (11,12), (11,13)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -373,9 +327,6 @@ def test_for_else():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,5), (2,1), (2,3)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -399,9 +350,6 @@ def test_for_break_else():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,6), (2,3), (2,4)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -426,9 +374,6 @@ def test_while():
     code = compile(t, "foo", "exec")
     assert [(2,3), (2,7), (4,2), (4,5)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -453,9 +398,6 @@ def test_while_else():
     code = compile(t, "foo", "exec")
     assert [(2,3), (2,7), (4,2), (4,5)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -481,9 +423,6 @@ def test_while_break_else():
     code = compile(t, "foo", "exec")
     assert [(2,3), (2,8), (4,5), (4,6)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -491,7 +430,6 @@ def test_while_break_else():
         assert [(2,3), (4,5)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match():
     t = ast_parse("""
         v = 2
@@ -509,9 +447,6 @@ def test_match():
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,6), (2,7)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -519,7 +454,6 @@ def test_match():
         assert [(2,6)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_case_with_false_guard():
     t = ast_parse("""
         x = 0
@@ -538,16 +472,12 @@ def test_match_case_with_false_guard():
     code = compile(t, "foo", "exec")
     assert [(3,5), (3,7), (3,8)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {br.BRANCH_NAME: []}
         exec(code, g, g)
         assert [(3,7)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_case_with_guard_isnt_wildcard():
     t = ast_parse("""
         def fun(v):
@@ -563,7 +493,6 @@ def test_match_case_with_guard_isnt_wildcard():
     assert [(2,0), (2,4)] == get_branches(code)
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_branch_to_exit():
     t = ast_parse("""
         v = 5
@@ -580,16 +509,12 @@ def test_match_branch_to_exit():
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,4), (2,6)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {br.BRANCH_NAME: []}
         exec(code, g, g)
         assert [(2,0)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_default():
     t = ast_parse("""
         v = 5
@@ -608,9 +533,6 @@ def test_match_default():
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,6), (2,8)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -618,7 +540,6 @@ def test_match_default():
         assert [(2,8)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_branch_after_case():
     t = ast_parse("""
         v = 1
@@ -637,9 +558,6 @@ def test_branch_after_case():
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,4), (2,7), (4,0), (4,5), (7,0), (7,8)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -647,7 +565,6 @@ def test_branch_after_case():
         assert [(2,4), (4,0)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_branch_after_case_with_default():
     t = ast_parse("""
         v = 1
@@ -669,9 +586,6 @@ def test_branch_after_case_with_default():
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,7), (2,10), (4,0), (4,5), (7,0), (7,8), (10,0), (10,11)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -679,7 +593,6 @@ def test_branch_after_case_with_default():
         assert [(2,4), (4,0)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_branch_after_case_with_next():
     t = ast_parse("""
         v = 1
@@ -699,9 +612,6 @@ def test_branch_after_case_with_next():
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,7), (2,9), (4,5), (4,9), (7,8), (7,9)] == get_branches(code)
 
-    if PYTHON_VERSION < (3,12):
-        t = assign2append(t)
-        code = compile(t, "foo", "exec")
 
         g = {'x': 0, br.BRANCH_NAME: []}
         exec(code, g, g)
@@ -709,7 +619,6 @@ def test_branch_after_case_with_next():
         assert [(2,4), (4,9)] == g[br.BRANCH_NAME]
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_wildcard_in_match_or():
     # Thanks to Ned Batchelder for this test case
     t = ast_parse(f"""
@@ -726,7 +635,6 @@ def test_match_wildcard_in_match_or():
     assert [(2,4)] == get_branches(code)
 
 
-@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_capture():
     t = ast_parse(f"""
             def capture(x):
@@ -742,7 +650,7 @@ def test_match_capture():
     assert [(2,4)] == get_branches(code)
 
 
-@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+@pytest.mark.parametrize(\"star\", ['', '*'])
 def test_try_except(star):
     t = ast_parse(f"""
         def foo(x):
@@ -785,7 +693,7 @@ def test_try_finally():
     assert [(4,5), (4,7)] == get_branches(code)
 
 
-@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+@pytest.mark.parametrize(\"star\", ['', '*'])
 def test_try_else(star):
     t = ast_parse(f"""
         def foo(x):
@@ -807,7 +715,7 @@ def test_try_else(star):
     assert [(4,5), (4,10), (7,0), (7,8)] == get_branches(code)
 
 
-@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+@pytest.mark.parametrize(\"star\", ['', '*'])
 def test_try_else_finally(star):
     t = ast_parse(f"""
         def foo(x):

@@ -11,7 +11,6 @@ import pytest
 import slipcover.branch as br
 import slipcover.slipcover as sc
 
-PYTHON_VERSION = sys.version_info[0:2]
 
 def current_line():
     import inspect as i
@@ -680,10 +679,7 @@ def test_summary_in_output_zero_lines(do_branch):
     assert 'summary' in cov
     summ = cov['summary']
 
-    if PYTHON_VERSION >= (3,11):
-        assert 0 == summ['covered_lines']
-    else:
-        assert 1 == summ['covered_lines']
+    assert 0 == summ['covered_lines']
     assert 0 == summ['missing_lines']
 
     if do_branch:
