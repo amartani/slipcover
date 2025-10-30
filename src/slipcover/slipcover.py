@@ -11,8 +11,7 @@ from pathlib import Path
 from . import branch as br
 from .version import __version__
 from .xmlreport import XmlReporter
-from . import slipcover_core
-RustCoverageTracker = slipcover_core.CoverageTracker
+from .slipcover_core import CoverageTracker
 
 # FIXME provide __all__
 
@@ -250,8 +249,8 @@ class Slipcover:
         # Track which code objects belong to this instance
         self.instrumented_code_ids: set = set()
 
-        # Rust-based coverage tracker
-        self.tracker = RustCoverageTracker()
+        # Coverage tracker
+        self.tracker = CoverageTracker()
 
         def handle_line(code, line):
             # Only track lines for code objects that this instance instrumented
