@@ -3,6 +3,7 @@ from .slipcover import Slipcover
 from .version import __version__
 from . import branch as br
 from pathlib import Path
+import sys
 import sysconfig
 
 from importlib.abc import MetaPathFinder, Loader

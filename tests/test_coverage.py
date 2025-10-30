@@ -475,7 +475,7 @@ def test_print_coverage_zero_lines(do_branch, capsys):
     sci.print_coverage(sys.stdout)
     output = capsys.readouterr()[0]
     output = output.splitlines()
-    assert re.match(f'^foo\\.py +{"1" if PYTHON_VERSION < (3,11) else "0"} +0{" +0 +0 +0" if do_branch else ""} +100', output[3])
+    assert re.match(f'^foo\\.py +0 +0{" +0 +0 +0" if do_branch else ""} +100', output[3])
 
 
 @pytest.mark.parametrize("do_branch", [True, False])
@@ -662,11 +662,7 @@ def test_summary_in_output_zero_lines(do_branch):
         assert 'summary' in cov['files'][fn]
         summ = cov['files'][fn]['summary']
 
-        if PYTHON_VERSION >= (3,11):
-            assert 0 == summ['covered_lines']
-        else:
-            assert 1 == summ['covered_lines']
-
+        assert 0 == summ['covered_lines']
         assert 0 == summ['missing_lines']
 
         if do_branch:
