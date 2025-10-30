@@ -6,5 +6,6 @@ build/
 dist/
 .coverage
 .tox/
-*.swp/target/
+*.swp
+/target/
 /Cargo.lock
