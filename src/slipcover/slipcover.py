@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dis
 import sys
-import threading
 import types
 from collections import defaultdict
 from typing import TYPE_CHECKING
@@ -12,14 +11,8 @@ from pathlib import Path
 from . import branch as br
 from .version import __version__
 from .xmlreport import XmlReporter
-
-try:
-    from slipcover_core import CoverageTracker as RustCoverageTracker
-    from slipcover_core import is_branch as rust_is_branch
-    from slipcover_core import decode_branch as rust_decode_branch
-    RUST_AVAILABLE = True
-except ImportError:
-    RUST_AVAILABLE = False
+from . import slipcover_core
+RustCoverageTracker = slipcover_core.CoverageTracker
 
 # FIXME provide __all__
 
@@ -257,39 +250,15 @@ class Slipcover:
         # Track which code objects belong to this instance
         self.instrumented_code_ids: set = set()
 
-        # Use Rust tracker if available, otherwise fall back to Python
-        if RUST_AVAILABLE:
-            self.rust_tracker = RustCoverageTracker()
-            self.use_rust = True
-        else:
-            self.use_rust = False
-            # mutex protecting this state
-            self.lock = threading.RLock()
-
-            # notes which code lines have been instrumented
-            self.code_lines: Dict[str, set] = defaultdict(set)
-            self.code_branches: Dict[str, set] = defaultdict(set)
-
-            # notes which lines and branches have been seen.
-            self.all_seen: Dict[str, set] = defaultdict(set)
-
-            # notes lines/branches seen since last de-instrumentation
-            self._get_newly_seen()
+        # Rust-based coverage tracker
+        self.tracker = RustCoverageTracker()
 
         def handle_line(code, line):
             # Only track lines for code objects that this instance instrumented
             if id(code) not in self.instrumented_code_ids:
                 return sys.monitoring.DISABLE
 
-            if self.use_rust:
-                # Use Rust implementation for performance
-                self.rust_tracker.handle_line(code.co_filename, line)
-            else:
-                # Python fallback
-                if br.is_branch(line):
-                    self.newly_seen[code.co_filename].add(br.decode_branch(line))
-                elif line:
-                    self.newly_seen[code.co_filename].add(line)
+            self.tracker.handle_line(code.co_filename, line)
             return sys.monitoring.DISABLE
 
         if sys.monitoring.get_tool(sys.monitoring.COVERAGE_ID) != "SlipCover":
@@ -302,21 +271,7 @@ class Slipcover:
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
-
-        if self.use_rust:
-            # Rust implementation handles this atomically
-            return self.rust_tracker.get_newly_seen()
-        else:
-            # We trust that assigning to self.newly_seen is atomic, as it is triggered
-            # by a STORE_NAME or similar opcode and Python synchronizes those.  We rely on
-            # C extensions' atomicity for updates within self.newly_seen.  The lock here
-            # is just to protect callers of this method (so that the exchange is atomic).
-
-            with self.lock:
-                newly_seen = self.newly_seen if hasattr(self, "newly_seen") else None
-                self.newly_seen: Dict[str, set] = defaultdict(set)
-
-            return newly_seen
+        return self.tracker.get_newly_seen()
 
 
     @staticmethod
@@ -362,18 +317,13 @@ class Slipcover:
                 self.instrument(c, co)
 
         if not parent:
-            if self.use_rust:
-                # Register with Rust tracker
-                lines = list(Slipcover.lines_from_code(co))
-                branches = list(Slipcover.branches_from_code(co))
-                if lines:
-                    self.rust_tracker.add_code_lines(co.co_filename, lines)
-                if branches:
-                    self.rust_tracker.add_code_branches(co.co_filename, branches)
-            else:
-                with self.lock:
-                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
-                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
+            # Register with Rust tracker
+            lines = list(Slipcover.lines_from_code(co))
+            branches = list(Slipcover.branches_from_code(co))
+            # Always register the file, even if it has no lines
+            self.tracker.add_code_lines(co.co_filename, lines)
+            if branches:
+                self.tracker.add_code_branches(co.co_filename, branches)
 
         return co
 
@@ -394,26 +344,19 @@ class Slipcover:
                     filename = str(file)
                     try:
                         # Check if file has been instrumented
-                        has_file = self.rust_tracker.has_file(filename) if self.use_rust else filename in self.code_lines
-
-                        if not has_file:
+                        if not self.tracker.has_file(filename):
                             t = ast.parse(file.read_text())
                             if self.branch:
                                 t = br.preinstrument(t)
                             code = compile(t, filename, "exec")
 
-                            if self.use_rust:
-                                lines = list(Slipcover.lines_from_code(code))
-                                if lines:
-                                    self.rust_tracker.add_code_lines(filename, lines)
-                                if self.branch:
-                                    branches = list(Slipcover.branches_from_code(code))
-                                    if branches:
-                                        self.rust_tracker.add_code_branches(filename, branches)
-                            else:
-                                self.code_lines[filename] = set(Slipcover.lines_from_code(code))
-                                if self.branch:
-                                    self.code_branches[filename] = set(Slipcover.branches_from_code(code))
+                            lines = list(Slipcover.lines_from_code(code))
+                            if lines:
+                                self.tracker.add_code_lines(filename, lines)
+                            if self.branch:
+                                branches = list(Slipcover.branches_from_code(code))
+                                if branches:
+                                    self.tracker.add_code_branches(filename, branches)
 
                     except Exception as e: # for SyntaxError and such... FIXME curate list and catch only those
                         print(f"Warning: unable to include {filename}: {e}")
@@ -434,83 +377,36 @@ class Slipcover:
 
     def signal_child_process(self):
         self.source = None  # only the parent process needs to run _add_unseen_source_files
-        if self.use_rust:
-            self._get_newly_seen()
-            self.rust_tracker.clear_all_seen()
-        else:
-            with self.lock:
-                self._get_newly_seen()
-                self.all_seen.clear()
+        self._get_newly_seen()
+        self.tracker.clear_all_seen()
 
 
     def get_coverage(self):
         """Returns coverage information collected."""
 
-        if self.use_rust:
-            # Use Rust implementation
-            # Merge newly seen into all_seen
-            self.rust_tracker.merge_newly_seen()
+        # Merge newly seen into all_seen
+        self.tracker.merge_newly_seen()
 
-            if self.source:
-                self._add_unseen_source_files(self.source)
+        if self.source:
+            self._add_unseen_source_files(self.source)
 
-            simp = PathSimplifier()
+        simp = PathSimplifier()
 
-            # Get coverage data from Rust
-            files_data = self.rust_tracker.get_coverage_data(self.branch)
+        # Get coverage data from Rust
+        files_data = self.tracker.get_coverage_data(self.branch)
 
-            # Simplify file paths
-            files = {}
-            for f, f_data in files_data.items():
-                files[simp.simplify(f)] = f_data
+        # Simplify file paths
+        files = {}
+        for f, f_data in files_data.items():
+            files[simp.simplify(f)] = f_data
 
-            cov = {
-                'meta': Slipcover._make_meta(self.branch),
-                'files': files
-            }
+        cov = {
+            'meta': Slipcover._make_meta(self.branch),
+            'files': files
+        }
 
-            add_summaries(cov)
-            return cov
-        else:
-            # Python fallback
-            with self.lock:
-                # FIXME calling _get_newly_seen will prevent de-instrumentation if still running!
-                newly_seen = self._get_newly_seen()
-
-                for file, lines in newly_seen.items():
-                    self.all_seen[file].update(lines)
-
-                if self.source:
-                    self._add_unseen_source_files(self.source)
-
-                simp = PathSimplifier()
-
-                files = dict()
-                for f, f_code_lines in self.code_lines.items():
-                    if f in self.all_seen:
-                        branches_seen = {x for x in self.all_seen[f] if isinstance(x, tuple)}
-                        lines_seen = self.all_seen[f] - branches_seen
-                    else:
-                        lines_seen = branches_seen = set()
-
-                    f_files = {
-                        'executed_lines': sorted(lines_seen),
-                        'missing_lines': sorted(f_code_lines - lines_seen),
-                    }
-
-                    if self.branch:
-                        f_files['executed_branches'] = sorted(branches_seen)
-                        f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
-
-                    files[simp.simplify(f)] = f_files
-
-                cov = {
-                    'meta': Slipcover._make_meta(self.branch),
-                    'files': files
-                }
-
-                add_summaries(cov)
-                return cov
+        add_summaries(cov)
+        return cov
 
 
     # @deprecated

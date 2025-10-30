@@ -64,9 +64,6 @@ struct CoverageTrackerInner {
 
     // Notes lines/branches seen since last get_newly_seen
     newly_seen: HashMap<String, AHashSet<LineOrBranch>>,
-
-    // Track which code object IDs have been instrumented by this instance
-    instrumented_code_ids: AHashSet<usize>,
 }
 
 #[pymethods]
@@ -79,7 +76,6 @@ impl CoverageTracker {
                 code_branches: HashMap::new(),
                 all_seen: HashMap::new(),
                 newly_seen: HashMap::new(),
-                instrumented_code_ids: AHashSet::new(),
             })),
         }
     }
@@ -210,31 +206,34 @@ impl CoverageTracker {
 
             // Handle branch coverage if requested
             if with_branches {
-                if let Some(code_branches) = inner.code_branches.get(filename) {
-                    let mut executed_branches: Vec<(i32, i32)> = branches_seen.iter().copied().collect();
-                    executed_branches.sort_unstable();
+                let code_branches = inner.code_branches.get(filename);
 
-                    let mut missing_branches: Vec<(i32, i32)> = code_branches
-                        .iter()
+                let mut executed_branches: Vec<(i32, i32)> = branches_seen.iter().copied().collect();
+                executed_branches.sort_unstable();
+
+                let mut missing_branches: Vec<(i32, i32)> = if let Some(cb) = code_branches {
+                    cb.iter()
                         .filter(|branch| !branches_seen.contains(branch))
                         .copied()
-                        .collect();
-                    missing_branches.sort_unstable();
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                missing_branches.sort_unstable();
 
-                    // Convert to list of lists for Python
-                    let exec_br_list = PyList::empty_bound(py);
-                    for (from_line, to_line) in executed_branches {
-                        exec_br_list.append(PyList::new_bound(py, &[from_line, to_line]))?;
-                    }
-
-                    let miss_br_list = PyList::empty_bound(py);
-                    for (from_line, to_line) in missing_branches {
-                        miss_br_list.append(PyList::new_bound(py, &[from_line, to_line]))?;
-                    }
-
-                    file_dict.set_item("executed_branches", exec_br_list)?;
-                    file_dict.set_item("missing_branches", miss_br_list)?;
+                // Convert to list of tuples for Python
+                let exec_br_list = PyList::empty_bound(py);
+                for (from_line, to_line) in executed_branches {
+                    exec_br_list.append(PyTuple::new_bound(py, &[from_line, to_line]))?;
                 }
+
+                let miss_br_list = PyList::empty_bound(py);
+                for (from_line, to_line) in missing_branches {
+                    miss_br_list.append(PyTuple::new_bound(py, &[from_line, to_line]))?;
+                }
+
+                file_dict.set_item("executed_branches", exec_br_list)?;
+                file_dict.set_item("missing_branches", miss_br_list)?;
             }
 
             files_dict.set_item(filename, file_dict)?;
