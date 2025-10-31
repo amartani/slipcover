@@ -320,7 +320,13 @@ fn lines_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<i32>> {
         let bound_item = item?;
         let tuple: &Bound<PyTuple> = bound_item.downcast()?;
         let off: usize = tuple.get_item(0)?.extract()?;
-        let line: i32 = tuple.get_item(1)?.extract()?;
+
+        // Check if line is None (Python 3.13 can return None)
+        let line_obj = tuple.get_item(1)?;
+        if line_obj.is_none() {
+            continue;
+        }
+        let line: i32 = line_obj.extract()?;
 
         // Filter out None lines, RESUME, and RETURN_GENERATOR
         if line != 0 &&
@@ -360,7 +366,13 @@ fn branches_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<(i32, i32)>
     for item in line_starts.try_iter()? {
         let bound_item = item?;
         let tuple: &Bound<PyTuple> = bound_item.downcast()?;
-        let line: i32 = tuple.get_item(1)?.extract()?;
+
+        // Check if line is None (Python 3.13 can return None)
+        let line_obj = tuple.get_item(1)?;
+        if line_obj.is_none() {
+            continue;
+        }
+        let line: i32 = line_obj.extract()?;
 
         if is_branch(line) {
             branches.push(decode_branch(line));

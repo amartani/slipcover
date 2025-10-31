@@ -39,8 +39,10 @@ def test_filematcher_defaults(tmp_path, monkeypatch):
     assert not fm.matches(inspect.getfile(inspect))
 
     # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
+    # Note: In some environments (e.g., uv-managed), pip may not be in site-packages
+    site_packages = next((Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists()), None)
+    if site_packages:
+        assert not fm.matches(site_packages / 'foo.py')
 
 
 def test_filematcher_source(tmp_path, monkeypatch):
@@ -87,8 +89,10 @@ def test_filematcher_source(tmp_path, monkeypatch):
     assert not fm.matches(inspect.getfile(inspect))
 
     # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
+    # Note: In some environments (e.g., uv-managed), pip may not be in site-packages
+    site_packages = next((Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists()), None)
+    if site_packages:
+        assert not fm.matches(site_packages / 'foo.py')
 
 
 def test_filematcher_source_resolved(monkeypatch):
@@ -137,8 +141,10 @@ def test_filematcher_omit_pattern(tmp_path, monkeypatch):
     assert not fm.matches(inspect.getfile(inspect))
 
     # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
+    # Note: In some environments (e.g., uv-managed), pip may not be in site-packages
+    site_packages = next((Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists()), None)
+    if site_packages:
+        assert not fm.matches(site_packages / 'foo.py')
 
 # TODO what about patterns starting with '?'
 
