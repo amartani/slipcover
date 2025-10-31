@@ -12,7 +12,7 @@ def decode_linetable(co):
     def read_varint(it):
         v = 0
         while (b := next(it)) & 0x40:
-            assert b & 0b10000000 == 0;
+            assert b & 0b10000000 == 0
             v = (v | (b & 0x3F)) << 6
         v = v | b
         return v
@@ -27,7 +27,7 @@ def decode_linetable(co):
     line = co.co_firstlineno
     it = iter(co.co_linetable)
     while (b := next(it, None)) != None:
-        assert b & 0b10000000;
+        assert b & 0b10000000
         code = (b & 0b1111000)>>3
         length = (b & 0b111) + 1
         if code <= 9:

@@ -5,5 +5,6 @@ def do_stuff():
             x += i
     return x
 
+
 def bar():
     pass

@@ -42,3 +42,6 @@ test = [
     'pytest-forked'
 ]
 
+[tool.ruff]
+exclude = ["benchmarks", "tools", "tests/testme*.py", "tests/imported/bad.py"]
+

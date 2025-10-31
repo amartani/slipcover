@@ -2,7 +2,6 @@ import numpy as np
 #import math
 
 def testme():
-    from numpy import linalg as LA
 
     arr = [i for i in range(1,1000)]
 

@@ -8,14 +8,16 @@ from typing import List, Tuple, Iterator
 
 # Python 3.10a7 changed branch opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
-if sys.version_info >= (3,10):
+if sys.version_info >= (3, 10):
+
     def offset2branch(offset: int) -> int:
         assert offset % 2 == 0
-        return offset//2
+        return offset // 2
 
     def branch2offset(arg: int) -> int:
-        return arg*2
+        return arg * 2
 else:
+
     def offset2branch(offset: int) -> int:
         return offset
 
@@ -28,13 +30,13 @@ is_EXTENDED_ARG = [op_EXTENDED_ARG]
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
 op_LOAD_GLOBAL = dis.opmap["LOAD_GLOBAL"]
 
-if sys.version_info >= (3,11):
+if sys.version_info >= (3, 11):
     op_RESUME = dis.opmap["RESUME"]
     op_PUSH_NULL = dis.opmap["PUSH_NULL"]
     op_PRECALL = dis.opmap["PRECALL"]
     op_CALL = dis.opmap["CALL"]
     op_CACHE = dis.opmap["CACHE"]
-    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"]) # type: ignore[attr-defined]
+    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])  # type: ignore[attr-defined]
 else:
     op_RESUME = None
     op_PUSH_NULL = None
@@ -49,20 +51,18 @@ op_STORE_GLOBAL = dis.opmap["STORE_GLOBAL"]
 
 def arg_ext_needed(arg: int) -> int:
     """Returns the number of EXTENDED_ARGs needed for an argument."""
-    return -((arg>>8).bit_length() // -8)   # ceiling by way of -(a // -b) 
+    return -((arg >> 8).bit_length() // -8)  # ceiling by way of -(a // -b)
 
 
-def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
+def opcode_arg(opcode: int, arg: int, min_ext: int = 0) -> List[int]:
     """Emits an opcode and its (variable length) argument."""
     bytecode = []
     ext = max(arg_ext_needed(arg), min_ext)
     assert ext <= 3
     for i in range(ext):
-        bytecode.extend(
-            [op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF]
-        )
+        bytecode.extend([op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF])
     bytecode.extend([opcode, arg & 0xFF])
-    if sys.version_info >= (3,11):
+    if sys.version_info >= (3, 11):
         bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])  # type: ignore[attr-defined]
     return bytecode
 
@@ -81,15 +81,15 @@ def unpack_opargs(code: bytes) -> Iterator[Tuple[int, int, int, int]]:
     while off < len(code):
         op = code[off]
         if op in is_EXTENDED_ARG:
-            ext_arg = (ext_arg | code[off+1]) << 8
+            ext_arg = (ext_arg | code[off + 1]) << 8
         else:
-            arg = (ext_arg | code[off+1])
-            if sys.version_info >= (3,11):
-                while off+2 < len(code) and code[off+2] == op_CACHE:
+            arg = ext_arg | code[off + 1]
+            if sys.version_info >= (3, 11):
+                while off + 2 < len(code) and code[off + 2] == op_CACHE:
                     off += 2
-            yield (next_off, off+2-next_off, op, arg)
+            yield (next_off, off + 2 - next_off, op, arg)
             ext_arg = 0
-            next_off = off+2
+            next_off = off + 2
         off += 2
 
 
@@ -99,7 +99,7 @@ def calc_max_stack(code: bytes) -> int:
     Assumes linear execution (i.e., not things like a loop pushing to the stack).
     """
     max_stack = stack = 0
-    for (_, _, op, arg) in unpack_opargs(code):
+    for _, _, op, arg in unpack_opargs(code):
         stack += dis.stack_effect(op, arg if op >= dis.HAVE_ARGUMENT else None)
         max_stack = max(stack, max_stack)
 
@@ -109,7 +109,7 @@ def calc_max_stack(code: bytes) -> int:
 class Branch:
     """Describes a branch instruction."""
 
-    def __init__(self, offset : int, length : int, opcode : int, arg : int):
+    def __init__(self, offset: int, length: int, opcode: int, arg: int):
         """Initializes a new Branch.
 
         offset - offset in code where the instruction starts; if EXTENDED_ARGs are
@@ -121,10 +121,13 @@ class Branch:
         self.offset = offset
         self.length = length
         self.opcode = opcode
-        self.is_relative = (opcode in dis.hasjrel)
-        self.is_backward = 'JUMP_BACKWARD' in dis.opname[opcode]
-        self.target = branch2offset(arg) if not self.is_relative \
-                      else offset + length + branch2offset(-arg if self.is_backward else arg)
+        self.is_relative = opcode in dis.hasjrel
+        self.is_backward = "JUMP_BACKWARD" in dis.opname[opcode]
+        self.target = (
+            branch2offset(arg)
+            if not self.is_relative
+            else offset + length + branch2offset(-arg if self.is_backward else arg)
+        )
 
     def arg(self) -> int:
         """Returns this branch's opcode argument."""
@@ -132,7 +135,7 @@ class Branch:
             return offset2branch(abs(self.target - (self.offset + self.length)))
         return offset2branch(self.target)
 
-    def adjust(self, insert_offset : int, insert_length : int) -> None:
+    def adjust(self, insert_offset: int, insert_length: int) -> None:
         """Adjusts this branch after a code insertion."""
         if self.offset >= insert_offset:
             self.offset += insert_length
@@ -144,7 +147,7 @@ class Branch:
 
         Returns the number of bytes by which the length increased.
         """
-        length_needed = 2 + 2*arg_ext_needed(self.arg())
+        length_needed = 2 + 2 * arg_ext_needed(self.arg())
         change = max(0, length_needed - self.length)
         if change:
             if self.target > self.offset:
@@ -155,17 +158,17 @@ class Branch:
 
     def code(self) -> List[int]:
         """Emits this branch's code."""
-        assert self.length >= 2 + 2*arg_ext_needed(self.arg())
-        return opcode_arg(self.opcode, self.arg(), (self.length-2)//2)
+        assert self.length >= 2 + 2 * arg_ext_needed(self.arg())
+        return opcode_arg(self.opcode, self.arg(), (self.length - 2) // 2)
 
     @staticmethod
-    def from_code(code : types.CodeType) -> List[Branch]:
+    def from_code(code: types.CodeType) -> List[Branch]:
         """Finds all Branches in code."""
         branches = []
 
         branch_opcodes = set(dis.hasjrel).union(dis.hasjabs)
 
-        for (off, length, op, arg) in unpack_opargs(code.co_code):
+        for off, length, op, arg in unpack_opargs(code.co_code):
             if op in branch_opcodes:
                 branches.append(Branch(off, length, op, arg))
 
@@ -174,8 +177,8 @@ class Branch:
 
 def append_varint(data, n):
     """Appends a (little endian) variable length unsigned integer to 'data'"""
-    while n > 0x3f:
-        data.append(0x40|(n&0x3f))
+    while n > 0x3F:
+        data.append(0x40 | (n & 0x3F))
         n = n >> 6
     data.append(n)
     return data
@@ -183,16 +186,16 @@ def append_varint(data, n):
 
 def append_svarint(data, n):
     """Appends a (little endian) variable length signed integer to 'data'"""
-    return append_varint(data, ((-n)<<1)|1 if n < 0 else n<<1)
+    return append_varint(data, ((-n) << 1) | 1 if n < 0 else n << 1)
 
 
 def write_varint_be(n, mark_first=None):
     """Encodes a (big endian) variable length unsigned integer"""
     data = bytearray()
-    top_bit = n.bit_length()-1
-    for shift in range(top_bit - top_bit%6, 0, -6):
-        data.append(0x40|((n >> shift)&0x3f))
-    data.append(n&0x3f)
+    top_bit = n.bit_length() - 1
+    for shift in range(top_bit - top_bit % 6, 0, -6):
+        data.append(0x40 | ((n >> shift) & 0x3F))
+    data.append(n & 0x3F)
     if mark_first:
         data[0] |= mark_first
     return data
@@ -202,17 +205,17 @@ def read_varint_be(it):
     """Decodes a (big endian) variable length unsigned integer from 'it'"""
     value = 0
     while (b := next(it)) & 0x40:
-        value |= b & 0x3f
+        value |= b & 0x3F
         value <<= 6
-    value |= b & 0x3f
+    value |= b & 0x3F
 
     return value
 
 
 def append_pypy_varuint(data: List[int], n: int) -> None:
     """Appends a pypy3.10-style encoded variable length unsigned integer to 'data'"""
-    while n > 0x7f:
-        data.append(0x80|(n&0x7f))
+    while n > 0x7F:
+        data.append(0x80 | (n & 0x7F))
         n = n >> 7
     data.append(n)
 
@@ -226,26 +229,26 @@ class ExceptionTableEntry:
         self.target = target
         self.other = other
 
-
     # FIXME tests missing
     def adjust(self, insert_offset: int, insert_length: int) -> None:
         """Adjusts this exception table entry, handling a code insertion."""
 
-#        old_start, old_end, old_target = self.start, self.end, self.target
+        #        old_start, old_end, old_target = self.start, self.end, self.target
         if insert_offset <= self.start:
             self.start += insert_length
         if insert_offset < self.end:
             self.end += insert_length
         if insert_offset < self.target:
             self.target += insert_length
-#        print(f"{old_start}-{old_end}->{old_target} ==> {self.start}-{self.end}->{self.target}")
 
+    #        print(f"{old_start}-{old_end}->{old_target} ==> {self.start}-{self.end}->{self.target}")
 
     @staticmethod
     def from_code(code: types.CodeType) -> List[ExceptionTableEntry]:
         """Returns a list of exception table entries from a code object."""
 
-        if sys.version_info < (3,11): return []
+        if sys.version_info < (3, 11):
+            return []
 
         entries = []
         it = iter(code.co_exceptiontable)
@@ -258,10 +261,9 @@ class ExceptionTableEntry:
                 other = read_varint_be(it)
                 entries.append(ExceptionTableEntry(start, end, target, other))
         except StopIteration:
-#            for e in entries:
-#                print(f"{e.start}-{e.end}: {e.target}")
+            #            for e in entries:
+            #                print(f"{e.start}-{e.end}: {e.target}")
             return entries
-
 
     @staticmethod
     def make_exceptiontable(entries: List[ExceptionTableEntry]) -> bytes:
@@ -280,7 +282,7 @@ class ExceptionTableEntry:
 class LineEntry:
     """Describes a range of bytecode offsets belonging to a line of Python source code."""
 
-    def __init__(self, start : int, end : int, number : int):
+    def __init__(self, start: int, end: int, number: int):
         """Initializes a new line entry.
 
         start, end: start and end offsets in the code
@@ -294,7 +296,7 @@ class LineEntry:
         return f"LineEntry(start={self.start},end={self.end},number={self.number})"
 
     # FIXME tests missing
-    def adjust(self, insert_offset : int, insert_length : int) -> None:
+    def adjust(self, insert_offset: int, insert_length: int) -> None:
         """Adjusts this line after a code insertion."""
 
         if self.start > insert_offset:  # note this may extend/shrink the line
@@ -303,7 +305,7 @@ class LineEntry:
             self.end += insert_length
 
     @staticmethod
-    def from_code(code : types.CodeType) -> List[LineEntry]:
+    def from_code(code: types.CodeType) -> List[LineEntry]:
         """Extracts a list of line entries from byte code"""
 
         def gen_lines():
@@ -317,9 +319,8 @@ class LineEntry:
 
         return [*gen_lines()]
 
-
     @staticmethod
-    def make_lnotab(firstlineno : int, lines : List[LineEntry]) -> bytes:
+    def make_lnotab(firstlineno: int, lines: List[LineEntry]) -> bytes:
         """Generates the line number table used by Python 3.9- to map offsets to line numbers."""
 
         lnotab = []
@@ -327,9 +328,9 @@ class LineEntry:
         prev_start = 0
         prev_number = firstlineno
 
-        for l in lines:
-            delta_start = l.start - prev_start
-            delta_number = l.number - prev_number
+        for line in lines:
+            delta_start = line.start - prev_start
+            delta_number = line.number - prev_number
 
             while delta_start > 255:
                 lnotab.extend([255, 0])
@@ -348,15 +349,15 @@ class LineEntry:
             if delta_start or delta_number:
                 lnotab.extend([delta_start, delta_number & 0xFF])
 
-            prev_start = l.start
-            prev_number = l.number
+            prev_start = line.start
+            prev_number = line.number
 
         return bytes(lnotab)
 
+    if sys.version_info >= (3, 9) and sys.version_info < (3, 11):  # 3.10
 
-    if sys.version_info >= (3,9) and sys.version_info < (3,11): # 3.10
         @staticmethod
-        def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
+        def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
             """Generates the line number table used by CPython 3.10 to map offsets to line numbers."""
 
             linetable = []
@@ -364,8 +365,12 @@ class LineEntry:
             prev_end = 0
             prev_number = firstlineno
 
-            for l in lines:
-                gap = l.start - prev_end if l.number is not None else l.end - prev_end
+            for line in lines:
+                gap = (
+                    line.start - prev_end
+                    if line.number is not None
+                    else line.end - prev_end
+                )
 
                 if gap:
                     while gap > 254:
@@ -375,11 +380,11 @@ class LineEntry:
                     linetable.extend([gap, -128 & 0xFF])
                     prev_end += gap
 
-                    if l.number is None:
+                    if line.number is None:
                         continue
 
-                delta_end = l.end - prev_end
-                delta_number = l.number - prev_number
+                delta_end = line.end - prev_end
+                delta_number = line.number - prev_number
 
                 while delta_number > 127:
                     linetable.extend([0, 127])
@@ -395,13 +400,18 @@ class LineEntry:
                     delta_end -= 254
 
                 linetable.extend([delta_end, delta_number & 0xFF])
-                prev_number = l.number
+                prev_number = line.number
 
-                prev_end = l.end
+                prev_end = line.end
 
             return bytes(linetable)
 
-    if sys.implementation.name == 'pypy' and sys.version_info >= (3,9) and sys.version_info < (3,11): #type: ignore
+    if (
+        sys.implementation.name == "pypy"
+        and sys.version_info >= (3, 9)
+        and sys.version_info < (3, 11)
+    ):  # type: ignore
+
         @staticmethod
         def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
             """Generates the positions table used by PyPy 3.10 map offsets to line numbers."""
@@ -410,29 +420,29 @@ class LineEntry:
 
             prev_end = 0
 
-            for l in lines:
-                while prev_end < l.start:
+            for line in lines:
+                while prev_end < line.start:
                     linetable.append(0)
                     prev_end += 2
 
-                if l.number is None:
-                    while prev_end < l.end:
+                if line.number is None:
+                    while prev_end < line.end:
                         linetable.append(0)
                         prev_end += 2
                 else:
-                    lineno_delta = l.number - firstlineno + 1
+                    lineno_delta = line.number - firstlineno + 1
 
-                    while prev_end < l.end:
+                    while prev_end < line.end:
                         append_pypy_varuint(linetable, lineno_delta)
                         linetable.append(0)
                         prev_end += 2
 
             return bytes(linetable)
 
+    if sys.version_info >= (3, 11):
 
-    if sys.version_info >= (3,11):
         @staticmethod
-        def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
+        def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
             """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
 
             linetable = []
@@ -440,35 +450,37 @@ class LineEntry:
             prev_end = 0
             prev_number = firstlineno
 
-            for l in lines:
-#                print(f"{l.start} {l.end} {l.number}")
+            for line in lines:
+                #                print(f"{line.start} {line.end} {line.number}")
 
-                if l.number is None:
-                    bytecodes = (l.end - prev_end)//2
+                if line.number is None:
+                    bytecodes = (line.end - prev_end) // 2
                     while bytecodes > 0:
-#                        print(f"->15 {min(bytecodes, 8)-1}")
-                        linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
+                        #                        print(f"->15 {min(bytecodes, 8)-1}")
+                        linetable.extend([0x80 | (15 << 3) | (min(bytecodes, 8) - 1)])
                         bytecodes -= 8
                 else:
-                    if prev_end < l.start:
-                        bytecodes = (l.start - prev_end)//2
+                    if prev_end < line.start:
+                        bytecodes = (line.start - prev_end) // 2
                         while bytecodes > 0:
-#                            print(f"->15 {min(bytecodes, 8)-1}")
-                            linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
+                            #                            print(f"->15 {min(bytecodes, 8)-1}")
+                            linetable.extend(
+                                [0x80 | (15 << 3) | (min(bytecodes, 8) - 1)]
+                            )
                             bytecodes -= 8
 
-                    line_delta = l.number - prev_number
-                    bytecodes = (l.end - l.start)//2
+                    line_delta = line.number - prev_number
+                    bytecodes = (line.end - line.start) // 2
                     while bytecodes > 0:
-#                        print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
-                        linetable.extend([0x80|(13<<3)|(min(bytecodes, 8)-1)])
+                        #                        print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
+                        linetable.extend([0x80 | (13 << 3) | (min(bytecodes, 8) - 1)])
                         append_svarint(linetable, line_delta)
                         line_delta = 0
                         bytecodes -= 8
 
-                    prev_number = l.number
+                    prev_number = line.number
 
-                prev_end = l.end
+                prev_end = line.end
 
             return bytes(linetable)
 
@@ -490,7 +502,6 @@ class Editor:
         self.max_addtl_stack = 0
         self.finished = False
 
-
     def set_const(self, index, value):
         """Sets a constant."""
         if self.consts is None:
@@ -498,15 +509,13 @@ class Editor:
 
         self.consts[index] = value
 
-
     def add_const(self, value):
         """Adds a constant."""
         if self.consts is None:
             self.consts = list(self.orig_code.co_consts)
 
         self.consts.append(value)
-        return len(self.consts)-1
-
+        return len(self.consts) - 1
 
     def insert_function_call(self, offset, function, args, repl_length=0):
         """Inserts a function call.
@@ -515,7 +524,7 @@ class Editor:
         """
 
         assert not self.finished
-        assert isinstance(function, int)    # we only support const references so far
+        assert isinstance(function, int)  # we only support const references so far
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -527,41 +536,49 @@ class Editor:
 
         insert = bytearray()
 
-        if sys.version_info >= (3,11):
-            insert.extend([op_NOP, 0,    # for disabling
-                           op_PUSH_NULL, 0] +
-                          opcode_arg(op_LOAD_CONST, function))
+        if sys.version_info >= (3, 11):
+            insert.extend(
+                [
+                    op_NOP,
+                    0,  # for disabling
+                    op_PUSH_NULL,
+                    0,
+                ]
+                + opcode_arg(op_LOAD_CONST, function)
+            )
 
             for a in args:
                 insert.extend(opcode_arg(op_LOAD_CONST, a))
 
-
-            insert.extend(opcode_arg(op_PRECALL, len(args)) +
-                          opcode_arg(op_CALL, len(args)) +
-                          [op_POP_TOP, 0])   # ignore return
+            insert.extend(
+                opcode_arg(op_PRECALL, len(args))
+                + opcode_arg(op_CALL, len(args))
+                + [op_POP_TOP, 0]
+            )  # ignore return
         else:
-            insert.extend([op_NOP, 0] +  # for disabling
-                          opcode_arg(op_LOAD_CONST, function))
+            insert.extend(
+                [op_NOP, 0]  # for disabling
+                + opcode_arg(op_LOAD_CONST, function)
+            )
 
             for a in args:
                 insert.extend(opcode_arg(op_LOAD_CONST, a))
 
-            insert.extend([op_CALL_FUNCTION, len(args),
-                           op_POP_TOP, 0])   # ignore return
+            insert.extend([op_CALL_FUNCTION, len(args), op_POP_TOP, 0])  # ignore return
 
         len_insert = len(insert)
         if len_insert < repl_length:
-            raise RuntimeError(f"shrinking insertions not (yet?) supported.")
+            raise RuntimeError("shrinking insertions not (yet?) supported.")
 
-        insert[1] = offset2branch(len_insert-2)    # fails if > 255
+        insert[1] = offset2branch(len_insert - 2)  # fails if > 255
         self.max_addtl_stack = max(self.max_addtl_stack, calc_max_stack(insert))
 
-        self.patch[offset:offset+repl_length] = insert
+        self.patch[offset : offset + repl_length] = insert
 
         bytes_added = len_insert - repl_length
 
-        for l in self.lines:
-            l.adjust(offset, bytes_added)
+        for line in self.lines:
+            line.adjust(offset, bytes_added)
 
         for b in self.branches:
             b.adjust(offset, bytes_added)
@@ -573,34 +590,34 @@ class Editor:
 
         return bytes_added
 
-
     def find_const_assignments(self, var_name, start=0, end=None):
         """Finds STORE_NAME assignments to the given variable,
-           coming from an immediately preceding LOAD_CONST.
+        coming from an immediately preceding LOAD_CONST.
         """
         load_off = None
-        for (op_off, op_len, op, arg) in unpack_opargs(self.orig_code.co_code[start:end]):
+        for op_off, op_len, op, arg in unpack_opargs(self.orig_code.co_code[start:end]):
             if op == op_LOAD_CONST:
-                load_off = op_off+start
+                load_off = op_off + start
                 const_arg = arg
 
             elif load_off is not None:
-                if op in [op_STORE_NAME, op_STORE_GLOBAL] \
-                   and self.orig_code.co_names[arg] == var_name:
-                    yield (load_off, op_off+start+op_len, const_arg)
+                if (
+                    op in [op_STORE_NAME, op_STORE_GLOBAL]
+                    and self.orig_code.co_names[arg] == var_name
+                ):
+                    yield (load_off, op_off + start + op_len, const_arg)
 
                 load_off = None
 
-
     def get_inserted_function(self, offset):
         """Returns const indices for an inserted function and for its arguments,
-           or None if an inserted function isn't recognized.
+        or None if an inserted function isn't recognized.
         """
         code = self.patch if self.patch is not None else self.orig_code.co_code
 
         if code[offset] == op_NOP:
             it = iter(unpack_opargs(code[offset:]))
-            next(it) # NOP
+            next(it)  # NOP
             op_offset, op_len, op, op_arg = next(it)
             if op == op_PUSH_NULL:
                 op_offset, op_len, op, op_arg = next(it)
@@ -617,7 +634,6 @@ class Editor:
 
         return None
 
-
     def disable_inserted_function(self, offset):
         """Disables an inserted function at a given offset."""
         assert not self.finished
@@ -627,7 +643,6 @@ class Editor:
 
         assert self.patch[offset] == op_NOP
         self.patch[offset] = op_JUMP_FORWARD
-
 
     def _finish(self):
         if not self.finished:
@@ -644,14 +659,14 @@ class Editor:
                     for b in self.branches:
                         change = b.adjust_length()
                         if change:
-#                            print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
-                            self.patch[b.offset:b.offset] = [0] * change
+                            #                            print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
+                            self.patch[b.offset : b.offset] = [0] * change
                             for c in self.branches:
                                 if b != c:
                                     c.adjust(b.offset, change)
 
-                            for l in self.lines:
-                                l.adjust(b.offset, change)
+                            for line in self.lines:
+                                line.adjust(b.offset, change)
 
                             for e in self.ex_table:
                                 e.adjust(b.offset, change)
@@ -663,14 +678,12 @@ class Editor:
                             any_adjusted = True
 
                 for b in self.branches:
-                    assert self.patch[b.offset+b.length-2] == b.opcode
-                    self.patch[b.offset:b.offset+b.length] = b.code()
-
+                    assert self.patch[b.offset + b.length - 2] == b.opcode
+                    self.patch[b.offset : b.offset + b.length] = b.code()
 
     def get_inserts(self) -> List[int]:
         self._finish()
-        return list(self.inserts)   # return copy so not to leak internal list
-
+        return list(self.inserts)  # return copy so not to leak internal list
 
     def finish(self):
         """Finishes editing bytecode, returning a new code object."""
@@ -680,7 +693,7 @@ class Editor:
         if not self.patch and not self.consts:
             return self.orig_code
 
-        replace : dict = {}
+        replace: dict = {}
         if self.consts is not None:
             replace["co_consts"] = tuple(self.consts)
 
@@ -691,12 +704,18 @@ class Editor:
             replace["co_code"] = bytes(self.patch)
 
         if self.branches is not None:
-            if sys.version_info < (3,10):
-                replace["co_lnotab"] = LineEntry.make_lnotab(self.orig_code.co_firstlineno, self.lines)
+            if sys.version_info < (3, 10):
+                replace["co_lnotab"] = LineEntry.make_lnotab(
+                    self.orig_code.co_firstlineno, self.lines
+                )
             else:
-                replace["co_linetable"] = LineEntry.make_linetable(self.orig_code.co_firstlineno, self.lines)
+                replace["co_linetable"] = LineEntry.make_linetable(
+                    self.orig_code.co_firstlineno, self.lines
+                )
 
-                if sys.version_info >= (3,11):
-                    replace["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
+                if sys.version_info >= (3, 11):
+                    replace["co_exceptiontable"] = (
+                        ExceptionTableEntry.make_exceptiontable(self.ex_table)
+                    )
 
         return self.orig_code.replace(**replace)
