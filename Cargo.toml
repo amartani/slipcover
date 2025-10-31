@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 path = "src_rust/lib.rs"
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }
+pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py312"] }
 ahash = "0.8"
 
 [profile.release]

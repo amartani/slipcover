@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PySet, PyTuple};
 use pyo3::exceptions::PyAssertionError;
+use pyo3::Py;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use ahash::AHashSet;
@@ -82,39 +83,37 @@ impl CoverageTracker {
 
     /// Handle a line execution event from sys.monitoring
     /// This is the performance-critical callback function
-    fn handle_line(&self, py: Python, filename: String, line: i32) {
-        // Release the GIL while we're working with the data structures
-        py.allow_threads(|| {
-            let mut inner = self.inner.lock().unwrap();
-            let seen_set = inner.newly_seen.entry(filename).or_insert_with(AHashSet::new);
+    fn handle_line(&self, filename: String, line: i32) {
+        // Work with the data structures
+        let mut inner = self.inner.lock().unwrap();
+        let seen_set = inner.newly_seen.entry(filename).or_insert_with(AHashSet::new);
 
-            if is_branch(line) {
-                let (from_line, to_line) = decode_branch(line);
-                seen_set.insert(LineOrBranch::Branch(from_line, to_line));
-            } else if line != 0 {
-                seen_set.insert(LineOrBranch::Line(line));
-            }
-        });
+        if is_branch(line) {
+            let (from_line, to_line) = decode_branch(line);
+            seen_set.insert(LineOrBranch::Branch(from_line, to_line));
+        } else if line != 0 {
+            seen_set.insert(LineOrBranch::Line(line));
+        }
     }
 
     /// Get and clear the newly seen lines/branches
-    fn get_newly_seen(&self, py: Python) -> PyResult<PyObject> {
+    fn get_newly_seen(&self, py: Python) -> PyResult<Py<PyAny>> {
         let mut inner = self.inner.lock().unwrap();
 
         // Create a new empty HashMap for newly_seen and swap it with the current one
         let old_newly_seen = std::mem::replace(&mut inner.newly_seen, HashMap::new());
 
         // Convert to Python dict
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for (filename, items) in old_newly_seen.iter() {
-            let py_set = PySet::empty_bound(py)?;
+            let py_set = PySet::empty(py)?;
             for item in items {
                 match item {
                     LineOrBranch::Line(line) => {
                         py_set.add(*line)?;
                     }
                     LineOrBranch::Branch(from_line, to_line) => {
-                        let tuple = PyTuple::new_bound(py, &[*from_line, *to_line]);
+                        let tuple = PyTuple::new(py, &[*from_line, *to_line])?;
                         py_set.add(tuple)?;
                     }
                 }
@@ -161,13 +160,13 @@ impl CoverageTracker {
     }
 
     /// Get coverage data for all files
-    fn get_coverage_data(&self, py: Python, with_branches: bool) -> PyResult<PyObject> {
+    fn get_coverage_data(&self, py: Python, with_branches: bool) -> PyResult<Py<PyAny>> {
         let inner = self.inner.lock().unwrap();
 
-        let files_dict = PyDict::new_bound(py);
+        let files_dict = PyDict::new(py);
 
         for (filename, code_lines) in inner.code_lines.iter() {
-            let file_dict = PyDict::new_bound(py);
+            let file_dict = PyDict::new(py);
 
             // Get the seen lines and branches for this file
             let (lines_seen, branches_seen) = if let Some(all_seen) = inner.all_seen.get(filename) {
@@ -201,8 +200,8 @@ impl CoverageTracker {
                 .collect();
             missing_lines.sort_unstable();
 
-            file_dict.set_item("executed_lines", PyList::new_bound(py, executed_lines))?;
-            file_dict.set_item("missing_lines", PyList::new_bound(py, missing_lines))?;
+            file_dict.set_item("executed_lines", PyList::new(py, executed_lines)?)?;
+            file_dict.set_item("missing_lines", PyList::new(py, missing_lines)?)?;
 
             // Handle branch coverage if requested
             if with_branches {
@@ -222,14 +221,14 @@ impl CoverageTracker {
                 missing_branches.sort_unstable();
 
                 // Convert to list of tuples for Python
-                let exec_br_list = PyList::empty_bound(py);
+                let exec_br_list = PyList::empty(py);
                 for (from_line, to_line) in executed_branches {
-                    exec_br_list.append(PyTuple::new_bound(py, &[from_line, to_line]))?;
+                    exec_br_list.append(PyTuple::new(py, &[from_line, to_line])?)?;
                 }
 
-                let miss_br_list = PyList::empty_bound(py);
+                let miss_br_list = PyList::empty(py);
                 for (from_line, to_line) in missing_branches {
-                    miss_br_list.append(PyTuple::new_bound(py, &[from_line, to_line]))?;
+                    miss_br_list.append(PyTuple::new(py, &[from_line, to_line])?)?;
                 }
 
                 file_dict.set_item("executed_branches", exec_br_list)?;
@@ -250,10 +249,10 @@ impl CoverageTracker {
     }
 
     /// Get all instrumented files
-    fn get_instrumented_files(&self, py: Python) -> PyResult<PyObject> {
+    fn get_instrumented_files(&self, py: Python) -> PyResult<Py<PyAny>> {
         let inner = self.inner.lock().unwrap();
         let files: Vec<&String> = inner.code_lines.keys().collect();
-        Ok(PyList::new_bound(py, files).into())
+        Ok(PyList::new(py, files)?.into())
     }
 
     /// Check if a file has been instrumented
