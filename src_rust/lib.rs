@@ -473,6 +473,7 @@ impl Slipcover {
         Ok(slf)
     }
 
+    #[pyo3(signature = (co, parent=None))]
     fn instrument(&mut self, py: Python, co: Py<PyAny>, parent: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
         let co_bound = co.bind(py);
 
@@ -582,17 +583,17 @@ impl Slipcover {
     }
 
     #[staticmethod]
-    fn find_functions(py: Python, items: Vec<Py<PyAny>>) -> PyResult<Vec<Py<PyAny>>> {
+    fn find_functions(py: Python, items: Vec<Py<PyAny>>, visited: Py<PySet>) -> PyResult<Vec<Py<PyAny>>> {
         // Import types module
         let types_module = PyModule::import(py, "types")?;
         let function_type = types_module.getattr("FunctionType")?;
         let code_type = types_module.getattr("CodeType")?;
 
-        let visited_set = PySet::empty(py)?;
+        let visited_set = visited.bind(py);
         let mut results = Vec::new();
 
         for item in items {
-            Self::find_funcs_recursive(py, item, &visited_set, &mut results, &function_type, &code_type)?;
+            Self::find_funcs_recursive(py, item, visited_set, &mut results, &function_type, &code_type)?;
         }
 
         Ok(results)
@@ -602,8 +603,44 @@ impl Slipcover {
         self.modules.push(module);
     }
 
-    // Note: print_coverage is deprecated and should be called from Python
-    // This is just a placeholder to maintain API compatibility
+    #[staticmethod]
+    fn lines_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<i32>> {
+        lines_from_code(py, &co.bind(py))
+    }
+
+    #[staticmethod]
+    fn branches_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<(i32, i32)>> {
+        branches_from_code(py, &co.bind(py))
+    }
+
+    #[pyo3(signature = (outfile=None, missing_width=None))]
+    fn print_coverage(&mut self, py: Python, outfile: Option<Py<PyAny>>, missing_width: Option<usize>) -> PyResult<()> {
+        // Get coverage first
+        let cov = self.get_coverage(py)?;
+
+        // Import the print_coverage function
+        let slipcover_module = PyModule::import(py, "slipcover.slipcover")?;
+        let print_coverage_fn = slipcover_module.getattr("print_coverage")?;
+
+        // Build kwargs
+        let kwargs = PyDict::new(py);
+        if let Some(of) = outfile {
+            kwargs.set_item("outfile", of)?;
+        } else {
+            // Default to sys.stdout
+            let sys_module = PyModule::import(py, "sys")?;
+            let stdout = sys_module.getattr("stdout")?;
+            kwargs.set_item("outfile", stdout)?;
+        }
+        if let Some(mw) = missing_width {
+            kwargs.set_item("missing_width", mw)?;
+        }
+
+        // Call the Python function
+        print_coverage_fn.call((&cov,), Some(&kwargs))?;
+        Ok(())
+    }
+
     fn __str__(&self, _py: Python) -> PyResult<String> {
         Ok(format!("Slipcover(branch={}, immediate={})", self.branch, self.immediate))
     }

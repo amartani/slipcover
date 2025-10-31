@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dis
 import sys
+import types
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -20,6 +22,17 @@ from .slipcover_core import (
 )
 
 # FIXME provide __all__
+
+# Python 3.13 returns 'None' lines;
+# Python 3.11+ generates a line just for RESUME or RETURN_GENERATOR, POP_TOP, RESUME;
+# Python 3.11 generates a 0th line
+_op_RESUME = dis.opmap["RESUME"]
+_op_RETURN_GENERATOR = dis.opmap["RETURN_GENERATOR"]
+
+def findlinestarts(co: types.CodeType):
+    for off, line in dis.findlinestarts(co):
+        if line and co.co_code[off] not in (_op_RESUME, _op_RETURN_GENERATOR):
+            yield off, line
 
 if TYPE_CHECKING:
     from typing import Dict, Iterable, Iterator, List, Optional, Tuple
