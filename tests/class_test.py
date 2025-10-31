@@ -1,4 +1,5 @@
-import sys  # just to see if it changes anything
+import sys  # just to see if it changes anything  # noqa: F401
+
 
 class TestBase:
     def b(self, x):
@@ -11,6 +12,7 @@ class TestBase:
     @staticmethod
     def b_static(x):
         pass
+
 
 class Test(TestBase):
     def f1(self, x):
@@ -35,12 +37,15 @@ class Test(TestBase):
     def f_classm(cls, x):
         pass
 
+
 def f5():
     def f6():
         pass
 
+
 def f7():
     pass
+
 
 if __name__ == "__main__":
     Test.Inner().f2(0)

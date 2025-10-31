@@ -1,5 +1,4 @@
 import numpy as np
-from numpy import linalg as LA
 
 class Testme:
     def doit1(self, x):

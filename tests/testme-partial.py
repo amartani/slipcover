@@ -1,7 +1,6 @@
 import numpy as np
 #import math
 
-from numpy import linalg as LA
 
 arr = [i for i in range(1,1000)]
 

@@ -9,14 +9,14 @@ if TYPE_CHECKING:
         timestamp: str
         branch_coverage: bool
         show_contexts: bool
-    
+
     class CoverageSummary(TypedDict):
         covered_lines: int
         missing_lines: int
         covered_branches: NotRequired[int]
         missing_branches: NotRequired[int]
         percent_covered: float
-    
+
     class CoverageFile(TypedDict):
         executed_lines: List[int]
         missing_lines: List[int]

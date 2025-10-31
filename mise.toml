@@ -1,0 +1,13 @@
+[tools]
+ruff = "latest"
+
+[tasks.python_lint]
+description = "Run Python linting with ruff"
+run = """
+ruff check .
+ruff format --check .
+"""
+
+[tasks.lint]
+description = "Run all linting tasks"
+depends = ["python_lint"]
