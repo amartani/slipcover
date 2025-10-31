@@ -6,12 +6,20 @@ import types
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from pathlib import Path
-
-from . import branch as br
 from .version import __version__
 from .xmlreport import XmlReporter
-from .slipcover_core import CoverageTracker
+
+# Import from Rust
+from .slipcover_core import (
+    Slipcover,
+    CoverageTracker,
+    PathSimplifier,
+    is_branch,
+    encode_branch,
+    decode_branch,
+    lines_from_code,
+    branches_from_code,
+)
 
 # FIXME provide __all__
 
@@ -32,19 +40,7 @@ if TYPE_CHECKING:
     from .schemas import Coverage
 
 class SlipcoverError(Exception):
-    pass
-
-
-class PathSimplifier:
-    def __init__(self):
-        self.cwd = Path.cwd()
-
-    def simplify(self, path : str) -> str:
-        f = Path(path)
-        try:
-            return str(f.relative_to(self.cwd))
-        except ValueError:
-            return path 
+    pass 
 
 
 def format_missing(missing_lines: List[int], executed_lines: List[int],
@@ -236,227 +232,5 @@ def merge_coverage(a: dict, b: dict) -> dict:
     return a
 
 
-class Slipcover:
-    def __init__(self, immediate: bool = False,
-                 d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: Optional[List[str]] = None):
-        self.immediate = immediate
-        self.d_miss_threshold = d_miss_threshold
-        self.branch = branch
-        self.disassemble = disassemble
-        self.source = source
-
-        # Track which code objects belong to this instance
-        self.instrumented_code_ids: set = set()
-
-        # Coverage tracker
-        self.tracker = CoverageTracker()
-
-        def handle_line(code, line):
-            # Only track lines for code objects that this instance instrumented
-            if id(code) not in self.instrumented_code_ids:
-                return sys.monitoring.DISABLE
-
-            self.tracker.handle_line(code.co_filename, line)
-            return sys.monitoring.DISABLE
-
-        if sys.monitoring.get_tool(sys.monitoring.COVERAGE_ID) != "SlipCover":
-            sys.monitoring.use_tool_id(sys.monitoring.COVERAGE_ID, "SlipCover") # FIXME add free_tool_id
-
-        sys.monitoring.register_callback(sys.monitoring.COVERAGE_ID,
-                                         sys.monitoring.events.LINE, handle_line)
-
-        self.modules : list = []
-
-    def _get_newly_seen(self):
-        """Returns the current set of ``new'' lines, leaving a new container in place."""
-        return self.tracker.get_newly_seen()
-
-
-    @staticmethod
-    def lines_from_code(co: types.CodeType) -> Iterator[int]:
-        for c in co.co_consts:
-            if isinstance(c, types.CodeType):
-                yield from Slipcover.lines_from_code(c)
-
-        yield from (line for _, line in findlinestarts(co) if not br.is_branch(line))
-
-
-    @staticmethod
-    def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
-        for c in co.co_consts:
-            if isinstance(c, types.CodeType):
-                yield from Slipcover.branches_from_code(c)
-
-        yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line))
-
-
-    def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
-        """Instruments a code object for coverage detection.
-
-        If invoked on a function, instruments its code.
-        """
-
-        if isinstance(co, types.FunctionType):
-            co = co.__code__
-
-        assert isinstance(co, types.CodeType)
-        # print(f"instrumenting {co.co_name}")
-
-        # Track this code object as belonging to this instance
-        self.instrumented_code_ids.add(id(co))
-
-        sys.monitoring.set_local_events(sys.monitoring.COVERAGE_ID, co, sys.monitoring.events.LINE)
-        # Restart events in case they were previously disabled
-        sys.monitoring.restart_events()
-
-        # handle functions-within-functions
-        for c in co.co_consts:
-            if isinstance(c, types.CodeType):
-                self.instrument(c, co)
-
-        if not parent:
-            # Register with Rust tracker
-            lines = list(Slipcover.lines_from_code(co))
-            branches = list(Slipcover.branches_from_code(co))
-            # Always register the file, even if it has no lines
-            self.tracker.add_code_lines(co.co_filename, lines)
-            if branches:
-                self.tracker.add_code_branches(co.co_filename, branches)
-
-        return co
-
-
-    def _add_unseen_source_files(self, source: List[str]):
-        import ast
-
-        dirs = [Path(d).resolve() for d in source]
-
-        while dirs:
-            p = dirs.pop()
-            for file in p.iterdir():
-                if file.is_dir():
-                    dirs.append(file)   # walk this directory, too
-
-                elif file.is_file() and file.suffix.lower() == '.py':
-                    file = file.absolute()
-                    filename = str(file)
-                    try:
-                        # Check if file has been instrumented
-                        if not self.tracker.has_file(filename):
-                            t = ast.parse(file.read_text())
-                            if self.branch:
-                                t = br.preinstrument(t)
-                            code = compile(t, filename, "exec")
-
-                            lines = list(Slipcover.lines_from_code(code))
-                            if lines:
-                                self.tracker.add_code_lines(filename, lines)
-                            if self.branch:
-                                branches = list(Slipcover.branches_from_code(code))
-                                if branches:
-                                    self.tracker.add_code_branches(filename, branches)
-
-                    except Exception as e: # for SyntaxError and such... FIXME curate list and catch only those
-                        print(f"Warning: unable to include {filename}: {e}")
-
-
-    @staticmethod
-    def _make_meta(branch_coverage: bool) -> dict:
-        import datetime
-
-        return {
-            'software': 'slipcover',
-            'version': __version__,
-            'timestamp': datetime.datetime.now().isoformat(),
-            'branch_coverage': branch_coverage,
-            'show_contexts': False
-        }
-
-
-    def signal_child_process(self):
-        self.source = None  # only the parent process needs to run _add_unseen_source_files
-        self._get_newly_seen()
-        self.tracker.clear_all_seen()
-
-
-    def get_coverage(self):
-        """Returns coverage information collected."""
-
-        # Merge newly seen into all_seen
-        self.tracker.merge_newly_seen()
-
-        if self.source:
-            self._add_unseen_source_files(self.source)
-
-        simp = PathSimplifier()
-
-        # Get coverage data from Rust
-        files_data = self.tracker.get_coverage_data(self.branch)
-
-        # Simplify file paths
-        files = {}
-        for f, f_data in files_data.items():
-            files[simp.simplify(f)] = f_data
-
-        cov = {
-            'meta': Slipcover._make_meta(self.branch),
-            'files': files
-        }
-
-        add_summaries(cov)
-        return cov
-
-
-    # @deprecated
-    def print_coverage(self, outfile=sys.stdout, *, missing_width=None) -> None:
-        """Prints the coveage collected by this Slipcover."""
-        print_coverage(self.get_coverage(), outfile=outfile, missing_width=missing_width)
-
-
-    @staticmethod
-    def find_functions(items, visited : set):
-        # Don't use isinstance() or inspect.isfunction, as isinstance as may call __class__,
-        # which may have side effects (e.g., using Celery https://github.com/celery/celery).
-        def is_patchable_function(func):
-            # PyPy has no "builtin functions" like CPython. instead, it uses
-            # regular functions, with a special type of code object.
-            # the second condition is always True on CPython
-            return issubclass(type(func), types.FunctionType) and type(func.__code__) is types.CodeType
-
-        def find_funcs(root):
-            if is_patchable_function(root):
-                if root not in visited:
-                    visited.add(root)
-                    yield root
-
-            # Prefer isinstance(x,type) over isclass(x) because many many
-            # things, such as str(), are classes
-            elif issubclass(type(root), type):
-                if root not in visited:
-                    visited.add(root)
-
-                    # Don't use inspect.getmembers(root) since that invokes getattr(),
-                    # which causes any descriptors to be invoked, which results in either
-                    # additional (unintended) coverage and/or errors because __get__ is
-                    # invoked in an unexpected way.
-                    obj_names = dir(root)
-                    for obj_key in obj_names:
-                        mro = (root,) + root.__mro__
-                        for base in mro:
-                            if (base == root or base not in visited) and obj_key in base.__dict__:
-                                yield from find_funcs(base.__dict__[obj_key])
-                                break
-
-            elif (issubclass(type(root), classmethod) or issubclass(type(root), staticmethod)) and \
-                 is_patchable_function(root.__func__):
-                if root.__func__ not in visited:
-                    visited.add(root.__func__)
-                    yield root.__func__
-
-        # FIXME this may yield "dictionary changed size during iteration"
-        return [f for it in items for f in find_funcs(it)]
-
-
-    def register_module(self, m):
-        self.modules.append(m)
+# The Slipcover class is now implemented in Rust (slipcover_core)
+# All methods are available from the imported class above

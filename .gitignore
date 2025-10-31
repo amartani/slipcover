@@ -9,3 +9,4 @@ dist/
 *.swp
 /target/
 /Cargo.lock
+uv.lock

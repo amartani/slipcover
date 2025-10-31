@@ -1,17 +1,8 @@
 import ast
 from typing import List, Union
 
-def is_branch(line):
-    return (line & (1<<30)) != 0
-
-def encode_branch(from_line, to_line):
-    # FIXME anything bigger, and we get an overflow... encode to_line as relative number?
-    assert from_line <= 0x7FFF, f"Line number {from_line} too high, unable to add branch tracking"
-    assert to_line <= 0x7FFF, f"Line number {to_line} too high, unable to add branch tracking"
-    return (1<<30)|((from_line & 0x7FFF)<<15)|(to_line&0x7FFF)
-
-def decode_branch(line):
-    return ((line>>15)&0x7FFF, line&0x7FFF)
+# Import from Rust implementation
+from .slipcover_core import is_branch, encode_branch, decode_branch
 
 EXIT = 0
 
