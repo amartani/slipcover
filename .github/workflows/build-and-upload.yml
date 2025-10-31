@@ -27,89 +27,89 @@ jobs:
   build-wheel:
     needs: pick-devN
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['3.8', '3.9', '3.10']  # The 3.10 builds use abi3, so are good for Python 3.10+
-        os: ['ubuntu-latest', 'macos-13', 'macos-14', 'windows-latest']
-        include:
-          - os: ubuntu-latest
-            container: quay.io/pypa/manylinux_2_28_x86_64 # https://github.com/pypa/manylinux
-          # From 3.12 onwards we're a "pure Python" package;  also, only one needs to upload sources
-          - python_version: 3.12
-            os: ubuntu-latest
-            container: ''
-            upload_source: true
+        os: ['ubuntu-latest', 'macos-latest', 'windows-latest']
+        # Build for Python 3.12+ with abi3 support
+        target: [x86_64, aarch64]
+        exclude:
+          # Windows doesn't support aarch64 building from x86_64
+          - os: windows-latest
+            target: aarch64
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Mark workspace safe for git
-        # needed for container and self-hosted runners; see https://github.com/actions/checkout/issues/766
-        if: matrix.container != ''
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # setuptool's bdist uses 'git archive' to find files, and fails silently if it can't,
-          # leading to missing files in the archive.  Run it separately to force a failure in that case.
-          (cd src; git archive --prefix slipcover/ HEAD | tar -t > /dev/null)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: get coordinated .devN
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Maturin
+        run: python3 -m pip install maturin
+
+      - name: Get coordinated .devN
         if: github.event_name != 'release'
         uses: actions/download-artifact@v4
         with:
           name: devN
 
-      - name: select Xcode version
-        # MacOS > 14.2 requires Xcode >= 15.3; otherwise loading native extension modules fails with e.g.:
-        # dlopen(/opt/homebrew/lib/python3.11/site-packages/slipcover/probe.abi3.so, 0x0002): bad bind opcode 0x00 
-        if: startsWith(matrix.os, 'macos-')
-        run: |
-          if [ -d /Applications/Xcode_15.3.app/Contents/Developer ]; then sudo xcode-select --switch /Applications/Xcode_15.3.app/Contents/Developer; fi
-          clang++ --version
-          g++ --version
+      - name: Build wheels (x86_64)
+        if: matrix.target == 'x86_64'
+        run: maturin build --release --out dist
 
-      - name: set up python (script version)
-        if: matrix.container == ''
-        uses: actions/setup-python@v5
+      - name: Build wheels (aarch64 - Linux)
+        if: matrix.target == 'aarch64' && matrix.os == 'ubuntu-latest'
+        uses: PyO3/maturin-action@v1
         with:
-          python-version: ${{ matrix.python_version }}
+          target: aarch64
+          args: --release --out dist
+          manylinux: auto
 
-      - name: set up python (container version)
-        if: matrix.container != ''
+      - name: Build wheels (aarch64 - macOS)
+        if: matrix.target == 'aarch64' && matrix.os == 'macos-latest'
         run: |
-          PYV=`echo "${{ matrix.python_version }}" | tr -d "."`; ls -d -1 /opt/python/cp$PYV*/bin | head -n 1 >> $GITHUB_PATH
-          cat $GITHUB_PATH
+          rustup target add aarch64-apple-darwin
+          maturin build --release --target aarch64-apple-darwin --out dist
 
-      - name: install dependencies
-        run: |
-          python3 -m pip install -U pip # avoids GitHub warnings
-          python3 -m pip install twine build
+      - name: Build source dist
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64'
+        run: maturin sdist --out dist
 
-      - name: build wheel
-        run: python3 -m build --wheel
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
 
-      - name: run auditwheel for manylinux
-        if: matrix.container != ''
-        run: |
-          auditwheel repair dist/*.whl
-          rm -f dist/*.whl
-          mv wheelhouse/*.whl dist/
+  publish:
+    name: Publish to PyPI
+    needs: build-wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
 
-      - name: build source dist
-        if: matrix.upload_source
-        run: python3 -m build --sdist
-
-      - name: Non-release (dev) upload
+      - name: Publish to TestPyPI (dev builds)
         if: github.event_name != 'release'
+        uses: PyO3/maturin-action@v1
         env:
-          TWINE_REPOSITORY: testpypi
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.TESTPYPI_TOKEN }}
-        run: twine upload --verbose dist/*
+          MATURIN_PYPI_TOKEN: ${{ secrets.TESTPYPI_TOKEN }}
+        with:
+          command: upload
+          args: --skip-existing dist/* --repository testpypi
 
-      - name: Release upload
+      - name: Publish to PyPI (releases)
         if: github.event_name == 'release'
+        uses: PyO3/maturin-action@v1
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: twine upload --verbose dist/*
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        with:
+          command: upload
+          args: --skip-existing dist/*

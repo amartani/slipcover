@@ -7,3 +7,5 @@ dist/
 .coverage
 .tox/
 *.swp
+/target/
+/Cargo.lock
