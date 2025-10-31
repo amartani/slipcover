@@ -48,7 +48,8 @@ jobs:
 
     - name: Build and install SlipCover
       run: |
-        maturin develop --release
+        maturin build --release --out dist
+        python3 -m pip install --no-index --find-links=dist slipcover
 
     - name: Run tests
       run: python3 -m pytest
