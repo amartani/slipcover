@@ -63,8 +63,8 @@ def test_function():
     assert {simple_current_file()} == cov["files"].keys()
 
     cov = cov["files"][simple_current_file()]
-    assert [2, 4, 5, 6, 7] == [line - base_line for line in cov["executed_lines"]]
-    assert [3] == [line - base_line for line in cov["missing_lines"]]
+    assert [3, 5, 6, 7, 8] == [line - base_line for line in cov["executed_lines"]]
+    assert [4] == [line - base_line for line in cov["missing_lines"]]
 
 
 def test_generators():
@@ -88,7 +88,7 @@ def test_generators():
     assert {simple_current_file()} == cov["files"].keys()
 
     cov = cov["files"][simple_current_file()]
-    assert [2, 3, 4, 5, 6, 7, 8] == [line - base_line for line in cov["executed_lines"]]
+    assert [3, 4, 5] == [line - base_line for line in cov["executed_lines"]]
 
     assert [] == cov["missing_lines"]
 
@@ -123,16 +123,16 @@ def test_exception():
     assert {simple_current_file()} == cov["files"].keys()
 
     cov = cov["files"][simple_current_file()]
-    assert [2, 3, 4, 5, 7, 8, 10, 12] == [
+    assert [3, 4, 5, 6, 8, 9, 11, 13] == [
         line - base_line for line in cov["executed_lines"]
     ]
 
     all_lines = {line - base_line for offset, line in sc.findlinestarts(foo.__code__)}
 
-    if 6 not in all_lines:  # 6 is unreachable and may be omitted from the code
+    if 7 not in all_lines:  # 7 is unreachable and may be omitted from the code
         assert [] == [line - base_line for line in cov["missing_lines"]]
     else:
-        assert [6] == [line - base_line for line in cov["missing_lines"]]
+        assert [7] == [line - base_line for line in cov["missing_lines"]]
 
 
 def test_threads():
@@ -162,7 +162,7 @@ def test_threads():
     assert {simple_current_file()} == cov["files"].keys()
 
     cov = cov["files"][simple_current_file()]
-    assert [3, 4, 5, 6] == [line - base_line for line in cov["executed_lines"]]
+    assert [4, 5, 6, 7] == [line - base_line for line in cov["executed_lines"]]
     assert [] == cov["missing_lines"]
 
 
@@ -191,7 +191,7 @@ def test_async_inline():
     assert {simple_current_file()} == cov["files"].keys()
 
     cov = cov["files"][simple_current_file()]
-    assert [3, 4, 5, 6] == [line - base_line for line in cov["executed_lines"]]
+    assert [4, 5, 6, 7] == [line - base_line for line in cov["executed_lines"]]
     assert [] == cov["missing_lines"]
 
 
@@ -377,7 +377,7 @@ def test_get_coverage_detects_lines():
     assert {simple_current_file()} == cov["files"].keys()
 
     cov = cov["files"][simple_current_file()]
-    assert [6, 8, 9, 12, 13, 15] == [line - base_line for line in cov["missing_lines"]]
+    assert [7, 9, 10, 13, 14, 16] == [line - base_line for line in cov["missing_lines"]]
     assert [] == cov["executed_lines"]
 
 
@@ -434,7 +434,7 @@ def test_print_coverage(capsys):
     output = output.splitlines()
     assert re.match(
         f"^tests[/\\\\]test_coverage\\.py + {total} + {missd} +{round(100 * execd / total)} +"
-        + str(base_line + 3),
+        + str(base_line + 4),
         output[3],
     )
 

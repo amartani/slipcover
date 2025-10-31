@@ -1,3 +1,6 @@
+import sys  # just to see if it changes anything  # noqa: F401
+
+
 class TestBase:
     def b(self, x):
         pass

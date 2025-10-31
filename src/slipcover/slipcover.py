@@ -6,9 +6,20 @@ import types
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from .version import __version__  # noqa: F401
 from .xmlreport import XmlReporter
 
 # Import from Rust
+from .slipcover_core import (  # noqa: F401
+    Slipcover,
+    CoverageTracker,
+    PathSimplifier,
+    branches_from_code,
+    decode_branch,
+    encode_branch,
+    is_branch,
+    lines_from_code,
+)
 
 # FIXME provide __all__
 
