@@ -2,6 +2,7 @@
 ruff = "latest"
 python = "3.14"
 uv = "latest"
+rust = { version = "1.91.0", profile = "default" }
 
 [tasks.python_lint]
 description = "Run Python linting with ruff"
@@ -10,9 +11,13 @@ ruff check .
 ruff format --check .
 """
 
+[tasks.rust_lint]
+description = "Run Rust linting with clippy"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
 [tasks.lint]
 description = "Run all linting tasks"
-depends = ["python_lint"]
+depends = ["python_lint", "rust_lint"]
 
 [tasks.tests_py312]
 description = "Run pytest with Python 3.12"

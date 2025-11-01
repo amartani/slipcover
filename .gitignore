@@ -8,5 +8,4 @@ dist/
 .tox/
 *.swp
 /target/
-/Cargo.lock
 uv.lock

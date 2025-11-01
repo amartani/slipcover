@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mise run:*)"
+      "Bash(mise run:*)",
+      "Bash(cargo build:*)"
     ],
     "deny": [],
     "ask": []

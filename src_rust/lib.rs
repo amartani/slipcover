@@ -87,7 +87,7 @@ impl CoverageTracker {
     fn handle_line(&self, filename: String, line: i32) {
         // Work with the data structures
         let mut inner = self.inner.lock().unwrap();
-        let seen_set = inner.newly_seen.entry(filename).or_insert_with(AHashSet::new);
+        let seen_set = inner.newly_seen.entry(filename).or_default();
 
         if is_branch(line) {
             let (from_line, to_line) = decode_branch(line);
@@ -102,7 +102,7 @@ impl CoverageTracker {
         let mut inner = self.inner.lock().unwrap();
 
         // Create a new empty HashMap for newly_seen and swap it with the current one
-        let old_newly_seen = std::mem::replace(&mut inner.newly_seen, HashMap::new());
+        let old_newly_seen = std::mem::take(&mut inner.newly_seen);
 
         // Convert to Python dict
         let result = PyDict::new(py);
@@ -114,7 +114,7 @@ impl CoverageTracker {
                         py_set.add(*line)?;
                     }
                     LineOrBranch::Branch(from_line, to_line) => {
-                        let tuple = PyTuple::new(py, &[*from_line, *to_line])?;
+                        let tuple = PyTuple::new(py, [*from_line, *to_line])?;
                         py_set.add(tuple)?;
                     }
                 }
@@ -137,7 +137,7 @@ impl CoverageTracker {
             .collect();
 
         for (filename, new_items) in newly_seen_data {
-            let all_set = inner.all_seen.entry(filename).or_insert_with(AHashSet::new);
+            let all_set = inner.all_seen.entry(filename).or_default();
             for item in new_items {
                 all_set.insert(item);
             }
@@ -149,14 +149,14 @@ impl CoverageTracker {
     /// Add instrumented lines for a file
     fn add_code_lines(&self, filename: String, lines: Vec<i32>) {
         let mut inner = self.inner.lock().unwrap();
-        let lines_set = inner.code_lines.entry(filename).or_insert_with(AHashSet::new);
+        let lines_set = inner.code_lines.entry(filename).or_default();
         lines_set.extend(lines);
     }
 
     /// Add instrumented branches for a file
     fn add_code_branches(&self, filename: String, branches: Vec<(i32, i32)>) {
         let mut inner = self.inner.lock().unwrap();
-        let branches_set = inner.code_branches.entry(filename).or_insert_with(AHashSet::new);
+        let branches_set = inner.code_branches.entry(filename).or_default();
         branches_set.extend(branches);
     }
 
@@ -224,12 +224,12 @@ impl CoverageTracker {
                 // Convert to list of tuples for Python
                 let exec_br_list = PyList::empty(py);
                 for (from_line, to_line) in executed_branches {
-                    exec_br_list.append(PyTuple::new(py, &[from_line, to_line])?)?;
+                    exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
                 }
 
                 let miss_br_list = PyList::empty(py);
                 for (from_line, to_line) in missing_branches {
-                    miss_br_list.append(PyTuple::new(py, &[from_line, to_line])?)?;
+                    miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
                 }
 
                 file_dict.set_item("executed_branches", exec_br_list)?;
@@ -318,7 +318,7 @@ fn lines_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<i32>> {
 
     for item in line_starts.try_iter()? {
         let bound_item = item?;
-        let tuple: &Bound<PyTuple> = bound_item.downcast()?;
+        let tuple: &Bound<PyTuple> = bound_item.cast()?;
         let off: usize = tuple.get_item(0)?.extract()?;
 
         // Check if line is None (Python 3.13 can return None)
@@ -365,7 +365,7 @@ fn branches_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<(i32, i32)>
 
     for item in line_starts.try_iter()? {
         let bound_item = item?;
-        let tuple: &Bound<PyTuple> = bound_item.downcast()?;
+        let tuple: &Bound<PyTuple> = bound_item.cast()?;
 
         // Check if line is None (Python 3.13 can return None)
         let line_obj = tuple.get_item(1)?;
@@ -386,9 +386,7 @@ fn branches_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<(i32, i32)>
 #[pyclass]
 struct Slipcover {
     immediate: bool,
-    d_miss_threshold: i32,
     branch: bool,
-    disassemble: bool,
     source: Option<Vec<String>>,
     instrumented_code_ids: Arc<Mutex<HashSet<usize>>>,
     tracker: Py<CoverageTracker>,
@@ -398,13 +396,11 @@ struct Slipcover {
 #[pymethods]
 impl Slipcover {
     #[new]
-    #[pyo3(signature = (immediate=false, d_miss_threshold=50, branch=false, disassemble=false, source=None))]
+    #[pyo3(signature = (immediate=false, branch=false, source=None))]
     fn new(
         py: Python,
         immediate: bool,
-        d_miss_threshold: i32,
         branch: bool,
-        disassemble: bool,
         source: Option<Vec<String>>,
     ) -> PyResult<Py<Self>> {
         let tracker = Py::new(py, CoverageTracker::new())?;
@@ -414,9 +410,7 @@ impl Slipcover {
             py,
             Slipcover {
                 immediate,
-                d_miss_threshold,
                 branch,
-                disassemble,
                 source,
                 instrumented_code_ids: instrumented_code_ids.clone(),
                 tracker: tracker.clone_ref(py),
@@ -445,7 +439,7 @@ impl Slipcover {
             None,
             None,
             move |args: &Bound<PyTuple>, _kwargs: Option<&Bound<PyDict>>| -> PyResult<Py<PyAny>> {
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     let code = args.get_item(0)?;
                     let line: i32 = args.get_item(1)?.extract()?;
 
@@ -560,7 +554,7 @@ impl Slipcover {
 
         // Get coverage data from tracker
         let files_data = tracker.get_coverage_data(py, self.branch)?;
-        let files_dict_raw: &Bound<PyDict> = files_data.bind(py).downcast()?;
+        let files_dict_raw: &Bound<PyDict> = files_data.bind(py).cast()?;
 
         // Simplify file paths
         let files_dict = PyDict::new(py);
@@ -617,12 +611,12 @@ impl Slipcover {
 
     #[staticmethod]
     fn lines_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<i32>> {
-        lines_from_code(py, &co.bind(py))
+        lines_from_code(py, co.bind(py))
     }
 
     #[staticmethod]
     fn branches_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<(i32, i32)>> {
-        branches_from_code(py, &co.bind(py))
+        branches_from_code(py, co.bind(py))
     }
 
     #[pyo3(signature = (outfile=None, missing_width=None))]
@@ -804,11 +798,11 @@ impl Slipcover {
 
                 // Build MRO
                 let mro = root_bound.getattr("__mro__")?;
-                let mro_list: &Bound<PyTuple> = mro.downcast()?;
+                let mro_list: &Bound<PyTuple> = mro.cast()?;
 
                 for obj_key in obj_names {
                     for base in mro_list.iter() {
-                        let is_root = base.is(&root_bound);
+                        let is_root = base.is(root_bound);
                         let base_visited = visited.contains(&base)?;
 
                         if is_root || !base_visited {
@@ -829,20 +823,18 @@ impl Slipcover {
         let classmethod_type = py.get_type::<pyo3::types::PyType>().call1(("classmethod",))?;
         let staticmethod_type = py.get_type::<pyo3::types::PyType>().call1(("staticmethod",))?;
 
-        if root_type.is_subclass(&classmethod_type)? || root_type.is_subclass(&staticmethod_type)? {
-            if let Ok(func) = root_bound.getattr("__func__") {
-                let func_type = func.get_type();
-                if func_type.is_subclass(function_type)? {
-                    let func_code = func.getattr("__code__")?;
-                    let func_code_type = func_code.get_type();
+        if (root_type.is_subclass(&classmethod_type)? || root_type.is_subclass(&staticmethod_type)?)
+            && let Ok(func) = root_bound.getattr("__func__") {
+            let func_type = func.get_type();
+            if func_type.is_subclass(function_type)? {
+                let func_code = func.getattr("__code__")?;
+                let func_code_type = func_code.get_type();
 
-                    if func_code_type.is(code_type) {
-                        if !visited.contains(&func)? {
-                            visited.add(&func)?;
-                            let func_py: Py<PyAny> = func.into();
-                            results.push(func_py);
-                        }
-                    }
+                if func_code_type.is(code_type)
+                    && !visited.contains(&func)? {
+                    visited.add(&func)?;
+                    let func_py: Py<PyAny> = func.into();
+                    results.push(func_py);
                 }
             }
         }
