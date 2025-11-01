@@ -1,5 +1,7 @@
 [tools]
 ruff = "latest"
+python = "3.14"
+uv = "latest"
 
 [tasks.python_lint]
 description = "Run Python linting with ruff"
@@ -11,3 +13,26 @@ ruff format --check .
 [tasks.lint]
 description = "Run all linting tasks"
 depends = ["python_lint"]
+
+[tasks.tests_py312]
+description = "Run pytest with Python 3.12"
+tools.python = "3.12"
+run = "uv tool run --with tox-uv tox -e py312"
+
+[tasks.tests_py313]
+description = "Run pytest with Python 3.13"
+tools.python = "3.13"
+run = "uv tool run --with tox-uv tox -e py313"
+
+[tasks.tests_py314]
+description = "Run pytest with Python 3.14"
+tools.python = "3.14"
+run = "uv tool run --with tox-uv tox -e py314"
+
+[tasks.tests_all_versions]
+description = "Run tests on all Python versions (3.12, 3.13, 3.14)"
+depends = ["tests_py312", "tests_py313", "tests_py314"]
+
+[tasks.tests]
+description = "Run tests with Python 3.14"
+depends = ["tests_py314"]
