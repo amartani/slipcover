@@ -15,9 +15,8 @@ else
     echo "mise is already installed."
 fi
 
-# Run mise trust in the current directory
-echo "Running mise trust..."
 mise trust
+mise install
 
 # Append mise activation to CLAUDE_ENV_FILE if not already present
 if [ -n "$CLAUDE_ENV_FILE" ]; then
@@ -30,7 +29,24 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
         echo "mise activation already present in $CLAUDE_ENV_FILE."
     fi
 else
-    echo "Warning: CLAUDE_ENV_FILE is not set. Skipping mise activation setup."
+    # Ensure mise activation is present in ~/.bashrc
+    BASHRC="$HOME/.bashrc"
+    MISE_ACTIVATION='eval "$(mise activate bash)"'
+
+    if [ -f "$BASHRC" ]; then
+        if ! grep -qF "$MISE_ACTIVATION" "$BASHRC"; then
+            echo "Adding mise activation to $BASHRC..."
+            echo "" >> "$BASHRC"
+            echo "$MISE_ACTIVATION" >> "$BASHRC"
+            echo "mise activation added to $BASHRC."
+        else
+            echo "mise activation already present in $BASHRC."
+        fi
+    else
+        echo "$BASHRC not found. Creating and adding mise activation..."
+        echo "$MISE_ACTIVATION" > "$BASHRC"
+        echo "mise activation added to new $BASHRC."
+    fi
 fi
 
 echo "Session start script completed."
