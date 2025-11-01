@@ -7,7 +7,9 @@ echo "Running session start script..."
 # Check if mise is installed
 if ! command -v mise &> /dev/null; then
     echo "mise not found. Installing mise..."
-    curl https://mise.run | sh
+    cargo install cargo-binstall
+    cargo binstall mise
+    mise --version
     echo "mise installed successfully."
 else
     echo "mise is already installed."
@@ -15,11 +17,11 @@ fi
 
 # Run mise trust in the current directory
 echo "Running mise trust..."
-~/.local/bin/mise trust
+mise trust
 
 # Append mise activation to CLAUDE_ENV_FILE if not already present
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-    MISE_ACTIVATION='eval "$(~/.local/bin/mise activate bash)"'
+    MISE_ACTIVATION='eval "$(mise activate bash)"'
     if ! grep -qF "$MISE_ACTIVATION" "$CLAUDE_ENV_FILE"; then
         echo "Adding mise activation to $CLAUDE_ENV_FILE..."
         echo "$MISE_ACTIVATION" >> "$CLAUDE_ENV_FILE"
