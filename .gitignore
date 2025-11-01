@@ -8,5 +8,9 @@ dist/
 .tox/
 *.swp
 /target/
-/Cargo.lock
 uv.lock
+
+# Bazel
+/bazel-*
+.bazel
+/Cargo.Bazel.lock

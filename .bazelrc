@@ -1,0 +1,64 @@
+# Common settings
+build --enable_platform_specific_config
+build --incompatible_strict_action_env
+
+# Enable WORKSPACE mode
+common --enable_workspace
+common --noenable_bzlmod
+
+# Python configuration
+build --action_env=PYTHONHASHSEED=0
+
+# Network configuration - inherit proxy settings from environment
+build --action_env=http_proxy
+build --action_env=https_proxy
+build --action_env=HTTP_PROXY
+build --action_env=HTTPS_PROXY
+build --action_env=no_proxy="localhost,127.0.0.1,169.254.169.254,metadata.google.internal,*.svc.cluster.local,*.local,*.googleapis.com,*.google.com,github.com,*.github.com,githubusercontent.com,*.githubusercontent.com"
+build --action_env=NO_PROXY="localhost,127.0.0.1,169.254.169.254,metadata.google.internal,*.svc.cluster.local,*.local,*.googleapis.com,*.google.com,github.com,*.github.com,githubusercontent.com,*.githubusercontent.com"
+
+# Rust configuration (using cargo directly, no rules_rust settings needed)
+
+# Performance optimizations
+build --jobs=auto
+
+# Output settings
+build --show_timestamps
+build --color=yes
+
+# Test output
+test --test_output=errors
+test --test_summary=detailed
+
+# Linux-specific settings
+build:linux --cxxopt=-std=c++17
+build:linux --host_cxxopt=-std=c++17
+
+# macOS-specific settings
+build:macos --cxxopt=-std=c++17
+build:macos --host_cxxopt=-std=c++17
+
+# Windows-specific settings
+build:windows --cxxopt=/std:c++17
+build:windows --host_cxxopt=/std:c++17
+
+# Debug configuration
+build:debug --compilation_mode=dbg
+build:debug --strip=never
+
+# Release configuration
+build:release --compilation_mode=opt
+build:release --strip=always
+
+# Address sanitizer
+build:asan --strip=never
+build:asan --copt=-fsanitize=address
+build:asan --copt=-DADDRESS_SANITIZER
+build:asan --copt=-g
+build:asan --copt=-O1
+build:asan --copt=-fno-omit-frame-pointer
+build:asan --linkopt=-fsanitize=address
+
+# Coverage
+coverage --combined_report=lcov
+coverage --experimental_fetch_all_coverage_outputs

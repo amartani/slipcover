@@ -1,0 +1,6 @@
+# Core dependencies
+tabulate
+
+# Test dependencies
+pytest
+pytest-forked

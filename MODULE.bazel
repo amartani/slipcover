@@ -1,0 +1,51 @@
+"""Slipcover - Near zero-overhead Python code coverage tool"""
+
+module(
+    name = "slipcover",
+    version = "1.0.17",
+)
+
+# Bazel dependencies
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# Python rules
+bazel_dep(name = "rules_python", version = "1.6.3")
+
+# Rust rules
+bazel_dep(name = "rules_rust", version = "0.67.0")
+
+# PyO3 rules for Rust-Python bindings
+bazel_dep(name = "rules_rust_pyo3", version = "0.67.0")
+
+# Python toolchain
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    python_version = "3.12",
+    is_default = True,
+)
+
+# Python dependencies
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pip",
+    python_version = "3.12",
+    requirements_lock = "//:requirements.txt",
+)
+use_repo(pip, "pip")
+
+# Rust toolchain
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.85.0"],
+)
+
+# Crate dependencies
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")

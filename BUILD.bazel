@@ -1,0 +1,94 @@
+"""Root BUILD file for Slipcover - Minimal Bazel setup"""
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(glob(["**/*"]))
+
+# Build the project using maturin (wraps cargo + Python setup)
+genrule(
+    name = "build",
+    srcs = glob([
+        "src/**/*.py",
+        "src_rust/**/*.rs",
+        "Cargo.toml",
+        "Cargo.lock",
+        "pyproject.toml",
+        "setup.py",
+    ]),
+    outs = ["build.stamp"],
+    cmd = """
+        cd $$(dirname $(location pyproject.toml)) && \
+        pip install -e . && \
+        touch $(location build.stamp)
+    """,
+    tags = ["requires-network", "local"],
+)
+
+# Run all tests
+sh_test(
+    name = "test",
+    size = "large",
+    srcs = ["run_test.sh"],
+    data = glob([
+        "tests/**/*.py",
+        "src/**/*.py",
+        "src_rust/**/*.rs",
+    ]) + [
+        "Cargo.toml",
+        "Cargo.lock",
+        "pyproject.toml",
+    ],
+    tags = ["requires-network"],
+)
+
+# Individual test files
+sh_test(
+    name = "test_coverage",
+    size = "large",
+    srcs = ["run_test.sh"],
+    args = ["tests/test_coverage.py"],
+    data = glob([
+        "tests/**/*.py",
+        "src/**/*.py",
+        "src_rust/**/*.rs",
+    ]) + [
+        "Cargo.toml",
+        "Cargo.lock",
+        "pyproject.toml",
+    ],
+    tags = ["requires-network"],
+)
+
+sh_test(
+    name = "test_branch",
+    size = "large",
+    srcs = ["run_test.sh"],
+    args = ["tests/test_branch.py"],
+    data = glob([
+        "tests/**/*.py",
+        "src/**/*.py",
+        "src_rust/**/*.rs",
+    ]) + [
+        "Cargo.toml",
+        "Cargo.lock",
+        "pyproject.toml",
+    ],
+    tags = ["requires-network"],
+)
+
+sh_test(
+    name = "test_importer",
+    size = "medium",
+    srcs = ["run_test.sh"],
+    args = ["tests/test_importer.py"],
+    data = glob([
+        "tests/**/*.py",
+        "src/**/*.py",
+        "src_rust/**/*.rs",
+    ]) + [
+        "Cargo.toml",
+        "Cargo.lock",
+        "pyproject.toml",
+    ],
+    tags = ["requires-network"],
+)
