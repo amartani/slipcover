@@ -2,6 +2,7 @@
 ruff = "latest"
 python = "3.14"
 uv = "latest"
+rust = "1.91.0"
 
 [tasks.python_lint]
 description = "Run Python linting with ruff"
