@@ -7,8 +7,7 @@ echo "Running session start script..."
 # Check if mise is installed
 if ! command -v mise &> /dev/null; then
     echo "mise not found. Installing mise..."
-    cargo install cargo-binstall
-    cargo binstall mise
+    npm install -g @jdxcode/mise
     mise --version
     echo "mise installed successfully."
 else
