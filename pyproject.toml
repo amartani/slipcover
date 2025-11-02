@@ -1,12 +1,8 @@
 [project]
-name = "slipcover"
+name = "covers"
 description = "Near Zero-Overhead Python Code Coverage"
 keywords = ['coverage', 'testing']
 dynamic = ["readme", "version"]
-authors = [
-    { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
-    { name="Emery Berger", email="emery.berger@gmail.com" }
-]
 classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -22,11 +18,11 @@ dependencies = [
 ]
 
 [project.scripts]
-slipcover = "slipcover.__main__:main"
+covers = "covers.__main__:main"
 
 [project.urls]
-"Homepage" = "https://github.com/plasma-umass/slipcover"
-"Repository" = "https://github.com/plasma-umass/slipcover"
+"Homepage" = "https://github.com/amartani/covers"
+"Repository" = "https://github.com/amartani/covers"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -34,7 +30,7 @@ build-backend = "maturin"
 
 [tool.maturin]
 python-source = "src"
-module-name = "slipcover.slipcover_core"
+module-name = "covers.covers_core"
 
 [project.optional-dependencies]
 test = [

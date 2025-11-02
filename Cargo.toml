@@ -1,11 +1,11 @@
 [package]
-name = "slipcover"
-version = "1.0.17"
+name = "covers"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.91.0"
 
 [lib]
-name = "slipcover_core"
+name = "covers_core"
 crate-type = ["cdylib"]
 path = "src_rust/lib.rs"
 

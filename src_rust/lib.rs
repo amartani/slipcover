@@ -807,9 +807,9 @@ fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
     Ok(())
 }
 
-/// Main Slipcover class
+/// Main Covers class
 #[pyclass]
-struct Slipcover {
+struct Covers {
     immediate: bool,
     #[allow(dead_code)]
     d_miss_threshold: i32,
@@ -823,7 +823,7 @@ struct Slipcover {
 }
 
 #[pymethods]
-impl Slipcover {
+impl Covers {
     #[new]
     #[pyo3(signature = (immediate=false, d_miss_threshold=50, branch=false, disassemble=false, source=None))]
     fn new(
@@ -839,7 +839,7 @@ impl Slipcover {
 
         let slf = Py::new(
             py,
-            Slipcover {
+            Covers {
                 immediate,
                 d_miss_threshold,
                 branch,
@@ -859,8 +859,8 @@ impl Slipcover {
         let coverage_id = monitoring.getattr("COVERAGE_ID")?;
         let current_tool = monitoring.call_method1("get_tool", (&coverage_id,))?;
 
-        if current_tool.is_none() || current_tool.extract::<String>().ok() != Some("SlipCover".to_string()) {
-            monitoring.call_method1("use_tool_id", (&coverage_id, "SlipCover"))?;
+        if current_tool.is_none() || current_tool.extract::<String>().ok() != Some("Covers".to_string()) {
+            monitoring.call_method1("use_tool_id", (&coverage_id, "Covers"))?;
         }
 
         // Create the handle_line callback
@@ -1063,7 +1063,7 @@ impl Slipcover {
     }
 
     fn __str__(&self, _py: Python) -> PyResult<String> {
-        Ok(format!("Slipcover(branch={}, immediate={})", self.branch, self.immediate))
+        Ok(format!("Covers(branch={}, immediate={})", self.branch, self.immediate))
     }
 
     // Property getters
@@ -1089,13 +1089,13 @@ impl Slipcover {
 }
 
 // Helper methods implementation
-impl Slipcover {
+impl Covers {
     fn _make_meta(py: Python, branch_coverage: bool) -> PyResult<Py<PyDict>> {
         let now = Local::now();
         let timestamp = now.to_rfc3339_opts(SecondsFormat::Micros, true);
 
         let meta = PyDict::new(py);
-        meta.set_item("software", "slipcover")?;
+        meta.set_item("software", "covers")?;
         meta.set_item("version", VERSION)?;
         meta.set_item("timestamp", timestamp)?;
         meta.set_item("branch_coverage", branch_coverage)?;
@@ -1164,7 +1164,7 @@ impl Slipcover {
 
         // If branch coverage, preinstrument
         if self.branch {
-            let branch_module = PyModule::import(py, "slipcover.branch")?;
+            let branch_module = PyModule::import(py, "covers.branch")?;
             let preinstrument = branch_module.getattr("preinstrument")?;
             tree = preinstrument.call1((tree,))?;
         }
@@ -1276,7 +1276,7 @@ impl Slipcover {
 
 /// Module definition
 #[pymodule]
-fn slipcover_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_branch, m)?)?;
     m.add_function(wrap_pyfunction!(encode_branch, m)?)?;
     m.add_function(wrap_pyfunction!(decode_branch, m)?)?;
@@ -1286,7 +1286,7 @@ fn slipcover_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
-    m.add_class::<Slipcover>()?;
+    m.add_class::<Covers>()?;
     m.add("__version__", VERSION)?;
     Ok(())
 }

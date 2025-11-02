@@ -1,5 +1,5 @@
 from typing import Any, Optional
-from .slipcover import Slipcover
+from .covers import Covers
 from .version import __version__
 from . import branch as br
 from pathlib import Path
@@ -11,9 +11,9 @@ from importlib import machinery
 from importlib.resources.abc import TraversableResources
 
 
-class SlipcoverLoader(Loader):
-    def __init__(self, sci: Slipcover, orig_loader: Loader, origin: str):
-        self.sci = sci  # Slipcover object measuring coverage
+class CoversLoader(Loader):
+    def __init__(self, sci: Covers, orig_loader: Loader, origin: str):
+        self.sci = sci  # Covers object measuring coverage
         self.orig_loader = orig_loader  # original loader we're wrapping
         self.origin = Path(origin)  # module origin (source file for a source loader)
 
@@ -110,7 +110,7 @@ class MatchEverything:
         return True
 
 
-class SlipcoverMetaPathFinder(MetaPathFinder):
+class CoversMetaPathFinder(MetaPathFinder):
     def __init__(self, sci, file_matcher, debug=False):
         self.debug = debug
         self.sci = sci
@@ -122,7 +122,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 
         for f in sys.meta_path:
             # skip ourselves
-            if isinstance(f, SlipcoverMetaPathFinder):
+            if isinstance(f, CoversMetaPathFinder):
                 continue
 
             if not hasattr(f, "find_spec"):
@@ -139,7 +139,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
             if spec.origin and self.file_matcher.matches(spec.origin):
                 if self.debug:
                     print(f"instrumenting {fullname} from {spec.origin}")
-                spec.loader = SlipcoverLoader(self.sci, spec.loader, spec.origin)
+                spec.loader = CoversLoader(self.sci, spec.loader, spec.origin)
 
             return spec
 
@@ -151,11 +151,11 @@ class ImportManager:
 
     def __init__(
         self,
-        sci: Slipcover,
+        sci: Covers,
         file_matcher: Optional[FileMatcher] = None,
         debug: bool = False,
     ):
-        self.mpf = SlipcoverMetaPathFinder(
+        self.mpf = CoversMetaPathFinder(
             sci, file_matcher if file_matcher else MatchEverything(), debug
         )
 
@@ -172,7 +172,7 @@ class ImportManager:
             i += 1
 
 
-def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
+def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
     def redirect_calls(module, funcName, funcWrapperName):
         """Redirects calls to the given function to a wrapper function in the same module."""
         import ast
@@ -214,7 +214,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         find_replacements(code)
 
         visited: set = set()
-        for f in Slipcover.find_functions(module.__dict__.values(), visited):
+        for f in Covers.find_functions(module.__dict__.values(), visited):
             if repl := replacement.get(f.__code__.co_name, None):
                 assert f.__code__.co_firstlineno == repl.co_firstlineno  # sanity check
                 f.__code__ = repl
@@ -224,14 +224,14 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
     except ModuleNotFoundError:
         return
 
-    redirect_calls(pyrewrite, "exec", "_Slipcover_exec_wrapper")
+    redirect_calls(pyrewrite, "exec", "_Covers_exec_wrapper")
 
     def exec_wrapper(obj, g):
         if hasattr(obj, "co_filename") and file_matcher.matches(obj.co_filename):
             obj = sci.instrument(obj)
         exec(obj, g)
 
-    pyrewrite._Slipcover_exec_wrapper = exec_wrapper  # type: ignore[attr-defined]
+    pyrewrite._Covers_exec_wrapper = exec_wrapper  # type: ignore[attr-defined]
 
     if sci.branch:
         import inspect
@@ -249,7 +249,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
 
                 warnings.warn(
                     f"Unable to activate pytest branch coverage: unexpected {fun} signature {str(sig)}"
-                    + "; please open an issue at https://github.com/plasma-umass/slipcover .",
+                    + "; please open an issue at https://github.com/your-repo/covers .",
                     RuntimeWarning,
                 )
                 return
@@ -265,7 +265,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
             return orig_rewrite_asserts(*args)
 
         def adjust_name(fn: Path) -> Path:
-            return fn.parent / (fn.stem + "-slipcover-" + __version__ + fn.suffix)
+            return fn.parent / (fn.stem + "-covers-" + __version__ + fn.suffix)
 
         orig_read_pyc = pyrewrite._read_pyc
 
