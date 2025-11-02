@@ -8,21 +8,12 @@ from typing import List, Tuple, Iterator
 
 # Python 3.10a7 changed branch opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
-if sys.version_info >= (3, 10):
+def offset2branch(offset: int) -> int:
+    assert offset % 2 == 0
+    return offset // 2
 
-    def offset2branch(offset: int) -> int:
-        assert offset % 2 == 0
-        return offset // 2
-
-    def branch2offset(arg: int) -> int:
-        return arg * 2
-else:
-
-    def offset2branch(offset: int) -> int:
-        return offset
-
-    def branch2offset(arg: int) -> int:
-        return arg
+def branch2offset(arg: int) -> int:
+    return arg * 2
 
 
 op_EXTENDED_ARG = dis.EXTENDED_ARG
@@ -30,17 +21,12 @@ is_EXTENDED_ARG = [op_EXTENDED_ARG]
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
 op_LOAD_GLOBAL = dis.opmap["LOAD_GLOBAL"]
 
-if sys.version_info >= (3, 11):
-    op_RESUME = dis.opmap["RESUME"]
-    op_PUSH_NULL = dis.opmap["PUSH_NULL"]
-    op_PRECALL = dis.opmap["PRECALL"]
-    op_CALL = dis.opmap["CALL"]
-    op_CACHE = dis.opmap["CACHE"]
-    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])  # type: ignore[attr-defined]
-else:
-    op_RESUME = None
-    op_PUSH_NULL = None
-    op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
+op_RESUME = dis.opmap["RESUME"]
+op_PUSH_NULL = dis.opmap["PUSH_NULL"]
+op_PRECALL = dis.opmap["PRECALL"]
+op_CALL = dis.opmap["CALL"]
+op_CACHE = dis.opmap["CACHE"]
+is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])  # type: ignore[attr-defined]
 
 op_POP_TOP = dis.opmap["POP_TOP"]
 op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
@@ -62,8 +48,7 @@ def opcode_arg(opcode: int, arg: int, min_ext: int = 0) -> List[int]:
     for i in range(ext):
         bytecode.extend([op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF])
     bytecode.extend([opcode, arg & 0xFF])
-    if sys.version_info >= (3, 11):
-        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])  # type: ignore[attr-defined]
+    bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])  # type: ignore[attr-defined]
     return bytecode
 
 
@@ -84,9 +69,8 @@ def unpack_opargs(code: bytes) -> Iterator[Tuple[int, int, int, int]]:
             ext_arg = (ext_arg | code[off + 1]) << 8
         else:
             arg = ext_arg | code[off + 1]
-            if sys.version_info >= (3, 11):
-                while off + 2 < len(code) and code[off + 2] == op_CACHE:
-                    off += 2
+            while off + 2 < len(code) and code[off + 2] == op_CACHE:
+                off += 2
             yield (next_off, off + 2 - next_off, op, arg)
             ext_arg = 0
             next_off = off + 2
@@ -212,14 +196,6 @@ def read_varint_be(it):
     return value
 
 
-def append_pypy_varuint(data: List[int], n: int) -> None:
-    """Appends a pypy3.10-style encoded variable length unsigned integer to 'data'"""
-    while n > 0x7F:
-        data.append(0x80 | (n & 0x7F))
-        n = n >> 7
-    data.append(n)
-
-
 class ExceptionTableEntry:
     """Represents an entry from Python 3.11+'s exception table."""
 
@@ -246,9 +222,6 @@ class ExceptionTableEntry:
     @staticmethod
     def from_code(code: types.CodeType) -> List[ExceptionTableEntry]:
         """Returns a list of exception table entries from a code object."""
-
-        if sys.version_info < (3, 11):
-            return []
 
         entries = []
         it = iter(code.co_exceptiontable)
@@ -320,169 +293,47 @@ class LineEntry:
         return [*gen_lines()]
 
     @staticmethod
-    def make_lnotab(firstlineno: int, lines: List[LineEntry]) -> bytes:
-        """Generates the line number table used by Python 3.9- to map offsets to line numbers."""
+    def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
+        """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
 
-        lnotab = []
+        linetable = []
 
-        prev_start = 0
+        prev_end = 0
         prev_number = firstlineno
 
         for line in lines:
-            delta_start = line.start - prev_start
-            delta_number = line.number - prev_number
+            #                print(f"{line.start} {line.end} {line.number}")
 
-            while delta_start > 255:
-                lnotab.extend([255, 0])
-                delta_start -= 255
+            if line.number is None:
+                bytecodes = (line.end - prev_end) // 2
+                while bytecodes > 0:
+                    #                        print(f"->15 {min(bytecodes, 8)-1}")
+                    linetable.extend([0x80 | (15 << 3) | (min(bytecodes, 8) - 1)])
+                    bytecodes -= 8
+            else:
+                if prev_end < line.start:
+                    bytecodes = (line.start - prev_end) // 2
+                    while bytecodes > 0:
+                        #                            print(f"->15 {min(bytecodes, 8)-1}")
+                        linetable.extend(
+                            [0x80 | (15 << 3) | (min(bytecodes, 8) - 1)]
+                        )
+                        bytecodes -= 8
 
-            while delta_number > 127:
-                lnotab.extend([delta_start, 127])
-                delta_start = 0
-                delta_number -= 127
+                line_delta = line.number - prev_number
+                bytecodes = (line.end - line.start) // 2
+                while bytecodes > 0:
+                    #                        print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
+                    linetable.extend([0x80 | (13 << 3) | (min(bytecodes, 8) - 1)])
+                    append_svarint(linetable, line_delta)
+                    line_delta = 0
+                    bytecodes -= 8
 
-            while delta_number < -128:
-                lnotab.extend([delta_start, -128 & 0xFF])
-                delta_start = 0
-                delta_number += 128
-
-            if delta_start or delta_number:
-                lnotab.extend([delta_start, delta_number & 0xFF])
-
-            prev_start = line.start
-            prev_number = line.number
-
-        return bytes(lnotab)
-
-    if sys.version_info >= (3, 9) and sys.version_info < (3, 11):  # 3.10
-
-        @staticmethod
-        def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
-            """Generates the line number table used by CPython 3.10 to map offsets to line numbers."""
-
-            linetable = []
-
-            prev_end = 0
-            prev_number = firstlineno
-
-            for line in lines:
-                gap = (
-                    line.start - prev_end
-                    if line.number is not None
-                    else line.end - prev_end
-                )
-
-                if gap:
-                    while gap > 254:
-                        linetable.extend([254, -128 & 0xFF])
-                        gap -= 254
-
-                    linetable.extend([gap, -128 & 0xFF])
-                    prev_end += gap
-
-                    if line.number is None:
-                        continue
-
-                delta_end = line.end - prev_end
-                delta_number = line.number - prev_number
-
-                while delta_number > 127:
-                    linetable.extend([0, 127])
-                    delta_number -= 127
-
-                while delta_number < -127:
-                    linetable.extend([0, -127 & 0xFF])
-                    delta_number += 127
-
-                while delta_end > 254:
-                    linetable.extend([254, delta_number & 0xFF])
-                    delta_number = 0
-                    delta_end -= 254
-
-                linetable.extend([delta_end, delta_number & 0xFF])
                 prev_number = line.number
 
-                prev_end = line.end
+            prev_end = line.end
 
-            return bytes(linetable)
-
-    if (
-        sys.implementation.name == "pypy"
-        and sys.version_info >= (3, 9)
-        and sys.version_info < (3, 11)
-    ):  # type: ignore
-
-        @staticmethod
-        def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
-            """Generates the positions table used by PyPy 3.10 map offsets to line numbers."""
-
-            linetable = []
-
-            prev_end = 0
-
-            for line in lines:
-                while prev_end < line.start:
-                    linetable.append(0)
-                    prev_end += 2
-
-                if line.number is None:
-                    while prev_end < line.end:
-                        linetable.append(0)
-                        prev_end += 2
-                else:
-                    lineno_delta = line.number - firstlineno + 1
-
-                    while prev_end < line.end:
-                        append_pypy_varuint(linetable, lineno_delta)
-                        linetable.append(0)
-                        prev_end += 2
-
-            return bytes(linetable)
-
-    if sys.version_info >= (3, 11):
-
-        @staticmethod
-        def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
-            """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
-
-            linetable = []
-
-            prev_end = 0
-            prev_number = firstlineno
-
-            for line in lines:
-                #                print(f"{line.start} {line.end} {line.number}")
-
-                if line.number is None:
-                    bytecodes = (line.end - prev_end) // 2
-                    while bytecodes > 0:
-                        #                        print(f"->15 {min(bytecodes, 8)-1}")
-                        linetable.extend([0x80 | (15 << 3) | (min(bytecodes, 8) - 1)])
-                        bytecodes -= 8
-                else:
-                    if prev_end < line.start:
-                        bytecodes = (line.start - prev_end) // 2
-                        while bytecodes > 0:
-                            #                            print(f"->15 {min(bytecodes, 8)-1}")
-                            linetable.extend(
-                                [0x80 | (15 << 3) | (min(bytecodes, 8) - 1)]
-                            )
-                            bytecodes -= 8
-
-                    line_delta = line.number - prev_number
-                    bytecodes = (line.end - line.start) // 2
-                    while bytecodes > 0:
-                        #                        print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
-                        linetable.extend([0x80 | (13 << 3) | (min(bytecodes, 8) - 1)])
-                        append_svarint(linetable, line_delta)
-                        line_delta = 0
-                        bytecodes -= 8
-
-                    prev_number = line.number
-
-                prev_end = line.end
-
-            return bytes(linetable)
+        return bytes(linetable)
 
 
 class Editor:
@@ -536,35 +387,24 @@ class Editor:
 
         insert = bytearray()
 
-        if sys.version_info >= (3, 11):
-            insert.extend(
-                [
-                    op_NOP,
-                    0,  # for disabling
-                    op_PUSH_NULL,
-                    0,
-                ]
-                + opcode_arg(op_LOAD_CONST, function)
-            )
+        insert.extend(
+            [
+                op_NOP,
+                0,  # for disabling
+                op_PUSH_NULL,
+                0,
+            ]
+            + opcode_arg(op_LOAD_CONST, function)
+        )
 
-            for a in args:
-                insert.extend(opcode_arg(op_LOAD_CONST, a))
+        for a in args:
+            insert.extend(opcode_arg(op_LOAD_CONST, a))
 
-            insert.extend(
-                opcode_arg(op_PRECALL, len(args))
-                + opcode_arg(op_CALL, len(args))
-                + [op_POP_TOP, 0]
-            )  # ignore return
-        else:
-            insert.extend(
-                [op_NOP, 0]  # for disabling
-                + opcode_arg(op_LOAD_CONST, function)
-            )
-
-            for a in args:
-                insert.extend(opcode_arg(op_LOAD_CONST, a))
-
-            insert.extend([op_CALL_FUNCTION, len(args), op_POP_TOP, 0])  # ignore return
+        insert.extend(
+            opcode_arg(op_PRECALL, len(args))
+            + opcode_arg(op_CALL, len(args))
+            + [op_POP_TOP, 0]
+        )  # ignore return
 
         len_insert = len(insert)
         if len_insert < repl_length:
@@ -704,18 +544,11 @@ class Editor:
             replace["co_code"] = bytes(self.patch)
 
         if self.branches is not None:
-            if sys.version_info < (3, 10):
-                replace["co_lnotab"] = LineEntry.make_lnotab(
-                    self.orig_code.co_firstlineno, self.lines
-                )
-            else:
-                replace["co_linetable"] = LineEntry.make_linetable(
-                    self.orig_code.co_firstlineno, self.lines
-                )
-
-                if sys.version_info >= (3, 11):
-                    replace["co_exceptiontable"] = (
-                        ExceptionTableEntry.make_exceptiontable(self.ex_table)
-                    )
+            replace["co_linetable"] = LineEntry.make_linetable(
+                self.orig_code.co_firstlineno, self.lines
+            )
+            replace["co_exceptiontable"] = (
+                ExceptionTableEntry.make_exceptiontable(self.ex_table)
+            )
 
         return self.orig_code.replace(**replace)
