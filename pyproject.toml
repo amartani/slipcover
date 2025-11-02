@@ -2,7 +2,8 @@
 name = "covers"
 description = "Near Zero-Overhead Python Code Coverage"
 keywords = ['coverage', 'testing']
-dynamic = ["readme", "version"]
+version = "0.1.0"
+readme = "README.md"
 classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
