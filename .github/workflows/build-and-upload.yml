@@ -102,7 +102,9 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: upload
-          args: --skip-existing dist/* --repository testpypi
+          args: --skip-existing dist/*
+        env:
+          MATURIN_REPOSITORY: testpypi
 
       - name: Publish to PyPI (releases)
         if: github.event_name == 'release'
