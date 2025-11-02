@@ -196,9 +196,6 @@ def test_filematcher_omit_nonpattern(tmp_path, monkeypatch):
     sys.platform == "win32",
     reason="Fails due to weird PermissionError in Documents and Settings",
 )
-@pytest.mark.skip(
-    reason="Rust conversion: ImportManager integration test - requires additional work"
-)
 def test_loader_supports_resources(tmp_path):
     import subprocess
 
@@ -224,9 +221,6 @@ def test():
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="Fails due to weird PermissionError in Documents and Settings",
-)
-@pytest.mark.skip(
-    reason="Rust conversion: ImportManager subprocess test - requires additional CLI integration work"
 )
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_import_manager_instruments(tmp_path, do_branch):
@@ -261,9 +255,6 @@ def test():
     sys.platform == "win32",
     reason="Fails due to weird PermissionError in Documents and Settings",
 )
-@pytest.mark.skip(
-    reason="Rust conversion: ImportManager subprocess test - requires additional CLI integration work"
-)
 def test_import_manager_removed(tmp_path):
     import subprocess
 
@@ -297,9 +288,6 @@ def test():
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="Fails due to weird PermissionError in Documents and Settings",
-)
-@pytest.mark.skip(
-    reason="Rust conversion: ImportManager subprocess test - requires additional CLI integration work"
 )
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_import_manager_instruments_everything(tmp_path, do_branch):
