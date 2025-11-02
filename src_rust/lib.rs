@@ -275,7 +275,7 @@ struct PathSimplifier {
 impl PathSimplifier {
     #[new]
     fn new() -> PyResult<Self> {
-        let cwd = std::env::current_dir()
+        let cwd = dunce::canonicalize(std::env::current_dir()?)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to get cwd: {}", e)))?;
         Ok(PathSimplifier { cwd })
     }
@@ -1110,9 +1110,9 @@ impl Covers {
         let mut dirs: Vec<PathBuf> = Vec::new();
         for d in source {
             let p = PathBuf::from(d);
-            match p.canonicalize() {
+            match dunce::canonicalize(&p) {
                 Ok(resolved) => dirs.push(resolved),
-                Err(e) => return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to resolve path: {}", e))),
+                Err(e) => return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to resolve path {:?}: {}", p, e))),
             }
         }
 
