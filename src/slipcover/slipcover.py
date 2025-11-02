@@ -18,6 +18,7 @@ from .slipcover_core import (  # noqa: F401
     encode_branch,
     is_branch,
     lines_from_code,
+    print_coverage,
     __version__,
 )
 
@@ -105,74 +106,7 @@ def print_xml(
     ).report(outfile=outfile)
 
 
-def print_coverage(
-    coverage, *, outfile=sys.stdout, missing_width=None, skip_covered=False
-) -> None:
-    """Prints coverage information for human consumption."""
-    from tabulate import tabulate
-
-    if not coverage.get("files", None):  # includes empty coverage['files']
-        return
-
-    branch_coverage = coverage.get("meta", {}).get("branch_coverage", False)
-
-    def table():
-        for f, f_info in sorted(coverage["files"].items()):
-            exec_l = len(f_info["executed_lines"])
-            miss_l = len(f_info["missing_lines"])
-
-            if branch_coverage:
-                exec_b = len(f_info["executed_branches"])
-                miss_b = len(f_info["missing_branches"])
-                pct_b = 100 * exec_b / (exec_b + miss_b) if (exec_b + miss_b) else 0
-
-            pct = f_info["summary"]["percent_covered"]
-
-            if skip_covered and pct == 100.0:
-                continue
-
-            yield [
-                f,
-                exec_l + miss_l,
-                miss_l,
-                *([exec_b + miss_b, miss_b, round(pct_b)] if branch_coverage else []),
-                round(pct),
-                format_missing(
-                    f_info["missing_lines"],
-                    f_info["executed_lines"],
-                    f_info["missing_branches"] if "missing_branches" in f_info else [],
-                ),
-            ]
-
-        if len(coverage["files"]) > 1:
-            yield ["---"] + [""] * (6 if branch_coverage else 4)
-
-            s = coverage["summary"]
-
-            if branch_coverage:
-                exec_b = s["covered_branches"]
-                miss_b = s["missing_branches"]
-                pct_b = 100 * exec_b / (exec_b + miss_b) if (exec_b + miss_b) else 0
-
-            yield [
-                "(summary)",
-                s["covered_lines"] + s["missing_lines"],
-                s["missing_lines"],
-                *([exec_b + miss_b, miss_b, round(pct_b)] if branch_coverage else []),
-                round(s["percent_covered"]),
-                "",
-            ]
-
-    print("", file=outfile)
-    headers = [
-        "File",
-        "#lines",
-        "#l.miss",
-        *(["#br.", "#br.miss", "brCov%", "totCov%"] if branch_coverage else ["Cover%"]),
-        "Missing",
-    ]
-    maxcolwidths = [None] * (len(headers) - 1) + [missing_width]
-    print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
+# print_coverage is now implemented in Rust (imported above)
 
 
 def merge_coverage(a: dict, b: dict) -> dict:

@@ -429,10 +429,12 @@ def test_print_coverage(capsys):
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
-    assert re.match(
-        f"^tests[/\\\\]test_coverage\\.py + {total} + {missd} +{round(100 * execd / total)} +"
+    # With tabled output, data is on line 4 (0-indexed) instead of line 3
+    # Format: │ filename │ #lines │ #l.miss │ Cover% │ Missing │
+    assert re.search(
+        f"tests[/\\\\]test_coverage\\.py.*{total}.*{missd}.*{round(100 * execd / total)}.*"
         + str(base_line + 4),
-        output[3],
+        output[4],
     )
 
 
@@ -473,9 +475,11 @@ def test_print_coverage_branch(capsys):
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
-    assert re.match(
-        f"^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct_b} +{pct}",
-        output[3],
+    # With tabled output, data is on line 4 (0-indexed)
+    # Format: │ filename │ #lines │ #l.miss │ #br. │ #br.miss │ brCov% │ totCov% │ Missing │
+    assert re.search(
+        f"foo\\.py.*{total_l}.*{miss_l}.*{total_b}.*{miss_b}.*{pct_b}.*{pct}",
+        output[4],
     )
 
 
@@ -495,9 +499,13 @@ def test_print_coverage_zero_lines(do_branch, capsys):
     sci.print_coverage(sys.stdout)
     output = capsys.readouterr()[0]
     output = output.splitlines()
-    assert re.match(
-        f"^foo\\.py +0 +0{' +0 +0 +0' if do_branch else ''} +100", output[3]
-    )
+    # With tabled output, data is on line 4 (0-indexed)
+    if do_branch:
+        # Format: │ filename │ #lines │ #l.miss │ #br. │ #br.miss │ brCov% │ totCov% │ Missing │
+        assert re.search(f"foo\\.py.*0.*0.*0.*0.*0.*100", output[4])
+    else:
+        # Format: │ filename │ #lines │ #l.miss │ Cover% │ Missing │
+        assert re.search(f"foo\\.py.*0.*0.*100", output[4])
 
 
 @pytest.mark.parametrize("do_branch", [True, False])
