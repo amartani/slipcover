@@ -195,9 +195,6 @@ def test_async_inline():
     assert [] == cov["missing_lines"]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_async_file(tmp_path, do_branch):
     code = tmp_path / "t.py"
@@ -510,9 +507,6 @@ def test_print_coverage_no_coverage(capsys, do_branch):
     sc.print_coverage(cov)
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_print_coverage_skip_covered():
     p = subprocess.run(
         f"{sys.executable} -m slipcover --skip-covered tests/importer.py".split(),
@@ -525,9 +519,6 @@ def test_print_coverage_skip_covered():
     assert "importer.py" not in output
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_interpose_on_module_load(tmp_path, do_branch):
     # TODO include in coverage info
@@ -543,8 +534,10 @@ def test_interpose_on_module_load(tmp_path, do_branch):
     module_file = str(Path("tests") / "imported" / "__init__.py")
 
     assert module_file in cov["files"]
-    assert [1, 2, 3, 4, 5, 6, 8] == cov["files"][module_file]["executed_lines"]
-    assert [9] == cov["files"][module_file]["missing_lines"]
+    expected_executed = [1, 2, 3, 4, 5, 6, 9]
+    expected_missing = [10]
+    assert expected_executed == cov["files"][module_file]["executed_lines"]
+    assert expected_missing == cov["files"][module_file]["missing_lines"]
     if do_branch:
         assert [[3, 4], [4, 5], [4, 6]] == cov["files"][module_file][
             "executed_branches"
@@ -555,9 +548,6 @@ def test_interpose_on_module_load(tmp_path, do_branch):
         assert "missing_branches" not in cov["files"][module_file]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_pytest_interpose(tmp_path):
     # TODO include in coverage info
     out_file = tmp_path / "out.json"
@@ -574,13 +564,12 @@ def test_pytest_interpose(tmp_path):
     assert test_file in cov["files"]
     assert {test_file} == set(cov["files"].keys())  # any unrelated files included?
     cov = cov["files"][test_file]
-    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov["executed_lines"]
+    # Python 3.12+ reports different line numbers for function definitions
+    expected_lines = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 16]
+    assert expected_lines == cov["executed_lines"]
     assert [] == cov["missing_lines"]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_pytest_interpose_branch(tmp_path):
     # TODO include in coverage info
     test_file = str(Path("tests") / "pyt.py")
@@ -611,7 +600,9 @@ def test_pytest_interpose_branch(tmp_path):
     assert test_file in cov["files"]
     assert {test_file} == set(cov["files"].keys())  # any unrelated files included?
     cov = cov["files"][test_file]
-    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov["executed_lines"]
+    # Python 3.12+ reports different line numbers for function definitions
+    expected_lines = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 16]
+    assert expected_lines == cov["executed_lines"]
     assert [] == cov["missing_lines"]
     assert [[3, 4], [4, 5], [4, 6]] == cov["executed_branches"]
     assert [[3, 6]] == cov["missing_branches"]
@@ -629,9 +620,6 @@ def test_pytest_interpose_branch(tmp_path):
     assert pytest_cache_content == pytest_cache_files[0].read_bytes()
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_pytest_plugins_visible():
     def pytest_plugins():
         from importlib import metadata
@@ -658,9 +646,6 @@ def test_pytest_plugins_visible():
     assert plain.stdout == with_sc.stdout
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_summary_in_output(tmp_path, do_branch):
     # TODO include in coverage info
@@ -769,9 +754,6 @@ def test_summary_in_output_zero_lines(do_branch):
     assert 100.0 == summ["percent_covered"]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 @pytest.mark.parametrize("json_flag", ["", "--json"])
 def test_fail_under(json_flag):
     p = subprocess.run(
@@ -793,9 +775,6 @@ def test_fail_under(json_flag):
     assert 2 == p.returncode
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_reports_on_other_sources(tmp_path):
     out_file = tmp_path / "out.json"
 
@@ -817,8 +796,10 @@ def test_reports_on_other_sources(tmp_path):
     baz_file = str(Path("tests") / "imported" / "subdir" / "baz.PY")
 
     assert init_file in cov["files"]
-    assert [1, 2, 3, 4, 5, 6, 8] == cov["files"][init_file]["executed_lines"]
-    assert [9] == cov["files"][init_file]["missing_lines"]
+    expected_executed = [1, 2, 3, 4, 5, 6, 9]
+    expected_missing = [10]
+    assert expected_executed == cov["files"][init_file]["executed_lines"]
+    assert expected_missing == cov["files"][init_file]["missing_lines"]
     assert [[3, 4], [4, 5], [4, 6]] == cov["files"][init_file]["executed_branches"]
     assert [[3, 6]] == cov["files"][init_file]["missing_branches"]
 
@@ -835,9 +816,6 @@ def test_reports_on_other_sources(tmp_path):
     assert [] == cov["files"][baz_file]["missing_branches"]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_resolves_other_sources(tmp_path):
     out_file = tmp_path / "out.json"
 
@@ -856,8 +834,10 @@ def test_resolves_other_sources(tmp_path):
     baz_file = str(Path("tests") / "imported" / "subdir" / "baz.PY")
 
     assert init_file in cov["files"]
-    assert [1, 2, 3, 4, 5, 6, 8] == cov["files"][init_file]["executed_lines"]
-    assert [9] == cov["files"][init_file]["missing_lines"]
+    expected_executed = [1, 2, 3, 4, 5, 6, 9]
+    expected_missing = [10]
+    assert expected_executed == cov["files"][init_file]["executed_lines"]
+    assert expected_missing == cov["files"][init_file]["missing_lines"]
     assert [[3, 4], [4, 5], [4, 6]] == cov["files"][init_file]["executed_branches"]
     assert [[3, 6]] == cov["files"][init_file]["missing_branches"]
 
@@ -887,9 +867,6 @@ def check_summaries(cov):
     assert check["summary"] == cov["summary"]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 @pytest.mark.parametrize("do_branch", [True, False, None])
 def test_merge_coverage(tmp_path, monkeypatch, do_branch):
     monkeypatch.chdir(tmp_path)
@@ -989,9 +966,6 @@ print("all done!")      # 11
     yield tmp_path
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 @pytest.mark.parametrize("branch_in", ["a", "b"])
 def test_merge_coverage_branch_coverage_disagree(cov_merge_fixture, branch_in):
     subprocess.run(
@@ -1033,9 +1007,6 @@ def test_merge_coverage_branch_coverage_disagree(cov_merge_fixture, branch_in):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pytest-forked is Unix-specific")
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_pytest_forked(tmp_path):
     out = tmp_path / "out.json"
     test_file = str(Path("tests") / "pyt.py")
@@ -1064,15 +1035,14 @@ def test_pytest_forked(tmp_path):
     assert test_file in cov["files"]
     assert {test_file} == set(cov["files"].keys())
     cov = cov["files"][test_file]
-    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov["executed_lines"]
+    # Python 3.12+ reports different line numbers for function definitions
+    expected_lines = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 16]
+    assert expected_lines == cov["executed_lines"]
     assert [] == cov["missing_lines"]
 
 
 @pytest.mark.skipif(
     sys.platform == "win32", reason="fork() and pytest-forked are Unix-specific"
-)
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
 )
 def test_forked_twice(tmp_path, monkeypatch):
     source = (Path("tests") / "pyt.py").resolve()
@@ -1124,15 +1094,14 @@ else:
 
     assert test_file in cov["files"]
     cov = cov["files"][test_file]
-    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov["executed_lines"]
+    # Python 3.12+ reports different line numbers for function definitions
+    expected_lines = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 16]
+    assert expected_lines == cov["executed_lines"]
     assert [] == cov["missing_lines"]
 
 
 @pytest.mark.skipif(
     sys.platform == "win32", reason="fork() and and other functions are Unix-specific"
-)
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
 )
 def test_fork_close(tmp_path, monkeypatch, capfd):
     source = (Path("tests") / "pyt.py").resolve()  # noqa: F841
@@ -1186,9 +1155,6 @@ else:
     assert 16 not in cov["executed_lines"]
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_merge_flag(cov_merge_fixture):
     subprocess.run(
         [
@@ -1242,9 +1208,6 @@ def test_merge_flag(cov_merge_fixture):
     check_summaries(c)
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_merge_flag_no_out(cov_merge_fixture):
     subprocess.run(
         [
@@ -1281,9 +1244,6 @@ def test_merge_flag_no_out(cov_merge_fixture):
         )
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_xml_flag(cov_merge_fixture: Path):
     p = subprocess.run(
         [sys.executable, "-m", "slipcover", "--xml", "--out", "out.xml", "t.py"],
@@ -1364,9 +1324,6 @@ def test_xml_flag(cov_merge_fixture: Path):
     assert lines[6].get("missing-branches") is None
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_xml_flag_with_branches(cov_merge_fixture: Path):
     p = subprocess.run(
         [
@@ -1456,9 +1413,6 @@ def test_xml_flag_with_branches(cov_merge_fixture: Path):
     assert lines[6].get("missing-branches") is None
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_xml_flag_with_pytest(tmp_path):
     out_file = tmp_path / "out.xml"
 
@@ -1537,46 +1491,43 @@ def test_xml_flag_with_pytest(tmp_path):
     assert lines[5].get("condition-coverage") is None
     assert lines[5].get("missing-branches") is None
 
-    assert lines[6].get("number") == "8"
+    assert lines[6].get("number") == "9"
     assert lines[6].get("hits") == "1"
     assert lines[6].get("branch") is None
     assert lines[6].get("condition-coverage") is None
     assert lines[6].get("missing-branches") is None
 
-    assert lines[7].get("number") == "9"
+    assert lines[7].get("number") == "10"
     assert lines[7].get("hits") == "1"
     assert lines[7].get("branch") is None
     assert lines[7].get("condition-coverage") is None
     assert lines[7].get("missing-branches") is None
 
-    assert lines[8].get("number") == "10"
+    assert lines[8].get("number") == "11"
     assert lines[8].get("hits") == "1"
     assert lines[8].get("branch") is None
     assert lines[8].get("condition-coverage") is None
     assert lines[8].get("missing-branches") is None
 
-    assert lines[9].get("number") == "11"
+    assert lines[9].get("number") == "12"
     assert lines[9].get("hits") == "1"
     assert lines[9].get("branch") is None
     assert lines[9].get("condition-coverage") is None
     assert lines[9].get("missing-branches") is None
 
-    assert lines[10].get("number") == "13"
+    assert lines[10].get("number") == "15"
     assert lines[10].get("hits") == "1"
     assert lines[10].get("branch") is None
     assert lines[10].get("condition-coverage") is None
     assert lines[10].get("missing-branches") is None
 
-    assert lines[11].get("number") == "14"
+    assert lines[11].get("number") == "16"
     assert lines[11].get("hits") == "1"
     assert lines[11].get("branch") is None
     assert lines[11].get("condition-coverage") is None
     assert lines[11].get("missing-branches") is None
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_xml_flag_with_branches_and_pytest(tmp_path):
     out_file = tmp_path / "out.xml"
 
@@ -1655,37 +1606,37 @@ def test_xml_flag_with_branches_and_pytest(tmp_path):
     assert lines[5].get("condition-coverage") is None
     assert lines[5].get("missing-branches") is None
 
-    assert lines[6].get("number") == "8"
+    assert lines[6].get("number") == "9"
     assert lines[6].get("hits") == "1"
     assert lines[6].get("branch") is None
     assert lines[6].get("condition-coverage") is None
     assert lines[6].get("missing-branches") is None
 
-    assert lines[7].get("number") == "9"
+    assert lines[7].get("number") == "10"
     assert lines[7].get("hits") == "1"
     assert lines[7].get("branch") is None
     assert lines[7].get("condition-coverage") is None
     assert lines[7].get("missing-branches") is None
 
-    assert lines[8].get("number") == "10"
+    assert lines[8].get("number") == "11"
     assert lines[8].get("hits") == "1"
     assert lines[8].get("branch") is None
     assert lines[8].get("condition-coverage") is None
     assert lines[8].get("missing-branches") is None
 
-    assert lines[9].get("number") == "11"
+    assert lines[9].get("number") == "12"
     assert lines[9].get("hits") == "1"
     assert lines[9].get("branch") is None
     assert lines[9].get("condition-coverage") is None
     assert lines[9].get("missing-branches") is None
 
-    assert lines[10].get("number") == "13"
+    assert lines[10].get("number") == "15"
     assert lines[10].get("hits") == "1"
     assert lines[10].get("branch") is None
     assert lines[10].get("condition-coverage") is None
     assert lines[10].get("missing-branches") is None
 
-    assert lines[11].get("number") == "14"
+    assert lines[11].get("number") == "16"
     assert lines[11].get("hits") == "1"
     assert lines[11].get("branch") is None
     assert lines[11].get("condition-coverage") is None
