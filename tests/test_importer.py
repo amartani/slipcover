@@ -328,9 +328,6 @@ def test():
     assert p.returncode == 0
 
 
-@pytest.mark.skip(
-    reason="Rust conversion: subprocess CLI test - requires additional CLI integration work"
-)
 def test_run_script_argv_is_str(tmp_path):
     cmdfile = tmp_path / "t.py"
     cmdfile.write_text("""

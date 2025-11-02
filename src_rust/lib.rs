@@ -386,7 +386,11 @@ fn branches_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<(i32, i32)>
 #[pyclass]
 struct Slipcover {
     immediate: bool,
+    #[allow(dead_code)]
+    d_miss_threshold: i32,
     branch: bool,
+    #[allow(dead_code)]
+    disassemble: bool,
     source: Option<Vec<String>>,
     instrumented_code_ids: Arc<Mutex<HashSet<usize>>>,
     tracker: Py<CoverageTracker>,
@@ -396,11 +400,13 @@ struct Slipcover {
 #[pymethods]
 impl Slipcover {
     #[new]
-    #[pyo3(signature = (immediate=false, branch=false, source=None))]
+    #[pyo3(signature = (immediate=false, d_miss_threshold=50, branch=false, disassemble=false, source=None))]
     fn new(
         py: Python,
         immediate: bool,
+        d_miss_threshold: i32,
         branch: bool,
+        disassemble: bool,
         source: Option<Vec<String>>,
     ) -> PyResult<Py<Self>> {
         let tracker = Py::new(py, CoverageTracker::new())?;
@@ -410,7 +416,9 @@ impl Slipcover {
             py,
             Slipcover {
                 immediate,
+                d_miss_threshold,
                 branch,
+                disassemble,
                 source,
                 instrumented_code_ids: instrumented_code_ids.clone(),
                 tracker: tracker.clone_ref(py),
@@ -589,7 +597,7 @@ impl Slipcover {
     }
 
     #[staticmethod]
-    fn find_functions(py: Python, items: Vec<Py<PyAny>>, visited: Py<PySet>) -> PyResult<Vec<Py<PyAny>>> {
+    fn find_functions(py: Python, items: Py<PyAny>, visited: Py<PySet>) -> PyResult<Vec<Py<PyAny>>> {
         // Import types module
         let types_module = PyModule::import(py, "types")?;
         let function_type = types_module.getattr("FunctionType")?;
@@ -598,7 +606,12 @@ impl Slipcover {
         let visited_set = visited.bind(py);
         let mut results = Vec::new();
 
-        for item in items {
+        // Convert to list first to handle dict_values and other iterables
+        let builtins = PyModule::import(py, "builtins")?;
+        let list_fn = builtins.getattr("list")?;
+        let items_list: Vec<Py<PyAny>> = list_fn.call1((items,))?.extract()?;
+
+        for item in items_list {
             Self::find_funcs_recursive(py, item, visited_set, &mut results, &function_type, &code_type)?;
         }
 
@@ -650,6 +663,27 @@ impl Slipcover {
     fn __str__(&self, _py: Python) -> PyResult<String> {
         Ok(format!("Slipcover(branch={}, immediate={})", self.branch, self.immediate))
     }
+
+    // Property getters
+    #[getter]
+    fn branch(&self) -> bool {
+        self.branch
+    }
+
+    #[getter]
+    fn immediate(&self) -> bool {
+        self.immediate
+    }
+
+    #[getter]
+    fn d_miss_threshold(&self) -> i32 {
+        self.d_miss_threshold
+    }
+
+    #[getter]
+    fn disassemble(&self) -> bool {
+        self.disassemble
+    }
 }
 
 // Helper methods implementation
@@ -697,7 +731,7 @@ impl Slipcover {
                 if file.call_method0("is_dir")?.extract::<bool>()? {
                     dirs.push(file.into());
                 } else if file.call_method0("is_file")?.extract::<bool>()? {
-                    let suffix: String = file.call_method0("suffix")?.extract()?;
+                    let suffix: String = file.getattr("suffix")?.extract()?;
                     if suffix.to_lowercase() == ".py" {
                         let absolute = file.call_method0("absolute")?;
                         let filename: String = absolute.str()?.extract()?;
