@@ -6,13 +6,23 @@ on:
   pull_request:
 
 jobs:
-  lint:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+      - run: ruff check .
+      - run: ruff format --check .
+
+  rust-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-      - name: Run linting
-        run: mise run lint
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
