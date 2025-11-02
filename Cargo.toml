@@ -12,6 +12,7 @@ path = "src_rust/lib.rs"
 [dependencies]
 pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py312"] }
 ahash = "0.8"
+tabled = "0.20.0"
 
 [profile.release]
 lto = "fat"

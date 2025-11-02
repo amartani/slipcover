@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use ahash::AHashSet;
+use tabled::{Table, Tabled, settings::Style};
 
 // Branch encoding constants
 const BRANCH_MARKER: i32 = 1 << 30;
@@ -385,6 +386,348 @@ fn branches_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<(i32, i32)>
 /// Version constant
 const VERSION: &str = "1.0.17";
 
+/// Format missing lines and branches as a string
+fn format_missing(
+    missing_lines: &[i32],
+    executed_lines: &[i32],
+    missing_branches: &[(i32, i32)],
+) -> String {
+    let missing_set: HashSet<i32> = missing_lines.iter().copied().collect();
+    let executed_set: HashSet<i32> = executed_lines.iter().copied().collect();
+
+    // Filter out branches where both endpoints are missing
+    let mut branches: Vec<(i32, i32)> = missing_branches
+        .iter()
+        .filter(|(a, b)| !missing_set.contains(a) && !missing_set.contains(b))
+        .copied()
+        .collect();
+    branches.sort_unstable();
+
+    let format_branch = |br: (i32, i32)| -> String {
+        if br.1 == 0 {
+            format!("{}->exit", br.0)
+        } else {
+            format!("{}->{}", br.0, br.1)
+        }
+    };
+
+    let mut result = Vec::new();
+    let mut lines_iter = missing_lines.iter().copied().peekable();
+    let mut branch_idx = 0;
+
+    while let Some(a) = lines_iter.next() {
+        // Add branches that come before this line
+        while branch_idx < branches.len() && branches[branch_idx].0 < a {
+            result.push(format_branch(branches[branch_idx]));
+            branch_idx += 1;
+        }
+
+        // Find the end of this range
+        let mut b = a;
+        while let Some(&n) = lines_iter.peek() {
+            // Check if there's any executed line between b and n
+            let has_executed = (b + 1..=n).any(|line| executed_set.contains(&line));
+            if has_executed {
+                break;
+            }
+            b = n;
+            lines_iter.next();
+        }
+
+        if a == b {
+            result.push(a.to_string());
+        } else {
+            result.push(format!("{}-{}", a, b));
+        }
+    }
+
+    // Add remaining branches
+    while branch_idx < branches.len() {
+        result.push(format_branch(branches[branch_idx]));
+        branch_idx += 1;
+    }
+
+    result.join(", ")
+}
+
+/// Row structure for the coverage table
+#[derive(Tabled)]
+struct CoverageRow {
+    #[tabled(rename = "File")]
+    file: String,
+    #[tabled(rename = "#lines")]
+    lines: String,
+    #[tabled(rename = "#l.miss")]
+    lines_miss: String,
+    #[tabled(rename = "#br.")]
+    branches: String,
+    #[tabled(rename = "#br.miss")]
+    branches_miss: String,
+    #[tabled(rename = "brCov%")]
+    branch_cov: String,
+    #[tabled(rename = "totCov%")]
+    total_cov: String,
+    #[tabled(rename = "Missing")]
+    missing: String,
+}
+
+/// Row structure for the coverage table without branch coverage
+#[derive(Tabled)]
+struct SimpleCoverageRow {
+    #[tabled(rename = "File")]
+    file: String,
+    #[tabled(rename = "#lines")]
+    lines: String,
+    #[tabled(rename = "#l.miss")]
+    lines_miss: String,
+    #[tabled(rename = "Cover%")]
+    coverage: String,
+    #[tabled(rename = "Missing")]
+    missing: String,
+}
+
+/// Print coverage information
+#[pyfunction]
+#[pyo3(signature = (coverage, outfile=None, missing_width=None, skip_covered=false))]
+fn print_coverage(
+    py: Python,
+    coverage: &Bound<PyDict>,
+    outfile: Option<Py<PyAny>>,
+    missing_width: Option<usize>,
+    skip_covered: bool,
+) -> PyResult<()> {
+    // Get files from coverage
+    let files = match coverage.get_item("files")? {
+        Some(f) if !f.is_empty()? => f,
+        _ => return Ok(()), // No files to report
+    };
+    let files_dict: &Bound<PyDict> = files.cast()?;
+
+    // Check if branch coverage is enabled
+    let mut branch_coverage = false;
+    if let Some(meta) = coverage.get_item("meta")?
+        && let Ok(bc) = meta.get_item("branch_coverage")
+    {
+        branch_coverage = bc.extract::<bool>().unwrap_or(false);
+    }
+
+    // Collect rows
+    let mut files_vec: Vec<(String, Py<PyAny>)> = files_dict
+        .iter()
+        .map(|(k, v)| (k.extract::<String>().unwrap(), v.into()))
+        .collect();
+    files_vec.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let table_str = if branch_coverage {
+        let mut rows: Vec<CoverageRow> = Vec::new();
+
+        for (filename, f_info_py) in files_vec {
+            let f_info: &Bound<PyDict> = f_info_py.bind(py).cast()?;
+
+            let exec_l = f_info.get_item("executed_lines")?.unwrap().len()?;
+            let miss_l = f_info.get_item("missing_lines")?.unwrap().len()?;
+
+            let exec_b = f_info.get_item("executed_branches")?.unwrap().len()?;
+            let miss_b = f_info.get_item("missing_branches")?.unwrap().len()?;
+            let total_b = exec_b + miss_b;
+            let pct_b = if total_b > 0 {
+                (100 * exec_b) / total_b
+            } else {
+                0
+            };
+
+            let summary = f_info.get_item("summary")?.unwrap();
+            let summary_dict: &Bound<PyDict> = summary.cast()?;
+            let pct: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+
+            if skip_covered && (pct - 100.0).abs() < 0.01 {
+                continue;
+            }
+
+            // Get missing info
+            let missing_lines_list = f_info.get_item("missing_lines")?.unwrap();
+            let missing_lines: Vec<i32> = missing_lines_list.extract()?;
+
+            let executed_lines_list = f_info.get_item("executed_lines")?.unwrap();
+            let executed_lines: Vec<i32> = executed_lines_list.extract()?;
+
+            let missing_branches = if let Some(mb) = f_info.get_item("missing_branches")? {
+                let mb_list: Vec<Vec<i32>> = mb.extract()?;
+                mb_list.into_iter().map(|v| (v[0], v[1])).collect()
+            } else {
+                Vec::new()
+            };
+
+            let missing_str = format_missing(&missing_lines, &executed_lines, &missing_branches);
+            let truncated_missing = if let Some(width) = missing_width {
+                if missing_str.len() > width {
+                    format!("{}...", &missing_str[..width.saturating_sub(3)])
+                } else {
+                    missing_str
+                }
+            } else {
+                missing_str
+            };
+
+            rows.push(CoverageRow {
+                file: filename,
+                lines: (exec_l + miss_l).to_string(),
+                lines_miss: miss_l.to_string(),
+                branches: total_b.to_string(),
+                branches_miss: miss_b.to_string(),
+                branch_cov: pct_b.to_string(),
+                total_cov: pct.round().to_string(),
+                missing: truncated_missing,
+            });
+        }
+
+        // Add summary if multiple files
+        if files_dict.len() > 1 {
+            let summary = coverage.get_item("summary")?.unwrap();
+            let summary_dict: &Bound<PyDict> = summary.cast()?;
+
+            let s_covered_lines: i32 = summary_dict.get_item("covered_lines")?.unwrap().extract()?;
+            let s_missing_lines: i32 = summary_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let s_covered_branches: i32 = summary_dict.get_item("covered_branches")?.unwrap().extract()?;
+            let s_missing_branches: i32 = summary_dict.get_item("missing_branches")?.unwrap().extract()?;
+            let s_percent: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+
+            let total_b = s_covered_branches + s_missing_branches;
+            let pct_b = if total_b > 0 {
+                (100 * s_covered_branches) / total_b
+            } else {
+                0
+            };
+
+            rows.push(CoverageRow {
+                file: "---".to_string(),
+                lines: String::new(),
+                lines_miss: String::new(),
+                branches: String::new(),
+                branches_miss: String::new(),
+                branch_cov: String::new(),
+                total_cov: String::new(),
+                missing: String::new(),
+            });
+
+            rows.push(CoverageRow {
+                file: "(summary)".to_string(),
+                lines: (s_covered_lines + s_missing_lines).to_string(),
+                lines_miss: s_missing_lines.to_string(),
+                branches: total_b.to_string(),
+                branches_miss: s_missing_branches.to_string(),
+                branch_cov: pct_b.to_string(),
+                total_cov: s_percent.round().to_string(),
+                missing: String::new(),
+            });
+        }
+
+        let mut table = Table::new(rows);
+        table.with(Style::empty());
+
+        // Note: missing_width parameter truncates strings before adding to table
+        // so width constraint is already handled
+
+        table.to_string()
+    } else {
+        let mut rows: Vec<SimpleCoverageRow> = Vec::new();
+
+        for (filename, f_info_py) in files_vec {
+            let f_info: &Bound<PyDict> = f_info_py.bind(py).cast()?;
+
+            let exec_l = f_info.get_item("executed_lines")?.unwrap().len()?;
+            let miss_l = f_info.get_item("missing_lines")?.unwrap().len()?;
+
+            let summary = f_info.get_item("summary")?.unwrap();
+            let summary_dict: &Bound<PyDict> = summary.cast()?;
+            let pct: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+
+            if skip_covered && (pct - 100.0).abs() < 0.01 {
+                continue;
+            }
+
+            // Get missing info
+            let missing_lines_list = f_info.get_item("missing_lines")?.unwrap();
+            let missing_lines: Vec<i32> = missing_lines_list.extract()?;
+
+            let executed_lines_list = f_info.get_item("executed_lines")?.unwrap();
+            let executed_lines: Vec<i32> = executed_lines_list.extract()?;
+
+            let missing_branches: Vec<(i32, i32)> = Vec::new();
+
+            let missing_str = format_missing(&missing_lines, &executed_lines, &missing_branches);
+            let truncated_missing = if let Some(width) = missing_width {
+                if missing_str.len() > width {
+                    format!("{}...", &missing_str[..width.saturating_sub(3)])
+                } else {
+                    missing_str
+                }
+            } else {
+                missing_str
+            };
+
+            rows.push(SimpleCoverageRow {
+                file: filename,
+                lines: (exec_l + miss_l).to_string(),
+                lines_miss: miss_l.to_string(),
+                coverage: pct.round().to_string(),
+                missing: truncated_missing,
+            });
+        }
+
+        // Add summary if multiple files
+        if files_dict.len() > 1 {
+            let summary = coverage.get_item("summary")?.unwrap();
+            let summary_dict: &Bound<PyDict> = summary.cast()?;
+
+            let s_covered_lines: i32 = summary_dict.get_item("covered_lines")?.unwrap().extract()?;
+            let s_missing_lines: i32 = summary_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let s_percent: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+
+            rows.push(SimpleCoverageRow {
+                file: "---".to_string(),
+                lines: String::new(),
+                lines_miss: String::new(),
+                coverage: String::new(),
+                missing: String::new(),
+            });
+
+            rows.push(SimpleCoverageRow {
+                file: "(summary)".to_string(),
+                lines: (s_covered_lines + s_missing_lines).to_string(),
+                lines_miss: s_missing_lines.to_string(),
+                coverage: s_percent.round().to_string(),
+                missing: String::new(),
+            });
+        }
+
+        let mut table = Table::new(rows);
+        table.with(Style::empty());
+
+        // Note: missing_width parameter truncates strings before adding to table
+        // so width constraint is already handled
+
+        table.to_string()
+    };
+
+    // Write output
+    let output = format!("\n{}\n", table_str);
+
+    if let Some(outfile_py) = outfile {
+        let outfile_bound = outfile_py.bind(py);
+        let write_method = outfile_bound.getattr("write")?;
+        write_method.call1((output,))?;
+    } else {
+        // Default to stdout
+        let sys_module = PyModule::import(py, "sys")?;
+        let stdout = sys_module.getattr("stdout")?;
+        let write_method = stdout.getattr("write")?;
+        write_method.call1((output,))?;
+    }
+
+    Ok(())
+}
+
 /// Adds (or updates) 'summary' entries in coverage information
 #[pyfunction]
 fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
@@ -715,27 +1058,10 @@ impl Slipcover {
     fn print_coverage(&mut self, py: Python, outfile: Option<Py<PyAny>>, missing_width: Option<usize>) -> PyResult<()> {
         // Get coverage first
         let cov = self.get_coverage(py)?;
+        let cov_bound = cov.bind(py);
 
-        // Import the print_coverage function
-        let slipcover_module = PyModule::import(py, "slipcover.slipcover")?;
-        let print_coverage_fn = slipcover_module.getattr("print_coverage")?;
-
-        // Build kwargs
-        let kwargs = PyDict::new(py);
-        if let Some(of) = outfile {
-            kwargs.set_item("outfile", of)?;
-        } else {
-            // Default to sys.stdout
-            let sys_module = PyModule::import(py, "sys")?;
-            let stdout = sys_module.getattr("stdout")?;
-            kwargs.set_item("outfile", stdout)?;
-        }
-        if let Some(mw) = missing_width {
-            kwargs.set_item("missing_width", mw)?;
-        }
-
-        // Call the Python function
-        print_coverage_fn.call((&cov,), Some(&kwargs))?;
+        // Call the Rust print_coverage function
+        print_coverage(py, cov_bound, outfile, missing_width, false)?;
         Ok(())
     }
 
@@ -962,6 +1288,7 @@ fn slipcover_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(lines_from_code, m)?)?;
     m.add_function(wrap_pyfunction!(branches_from_code, m)?)?;
     m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
+    m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Slipcover>()?;
