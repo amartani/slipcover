@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use ahash::AHashSet;
 use tabled::{Table, Tabled, settings::Style};
+use chrono::prelude::*;
 
 // Branch encoding constants
 const BRANCH_MARKER: i32 = 1 << 30;
@@ -876,9 +877,7 @@ impl Slipcover {
                     let line: i32 = args.get_item(1)?.extract()?;
 
                     // Get code object ID using builtins.id()
-                    let builtins = PyModule::import(py, "builtins")?;
-                    let id_fn = builtins.getattr("id")?;
-                    let code_id: usize = id_fn.call1((&code,))?.extract()?;
+                    let code_id = code.as_ptr() as usize;
 
                     // Check if this code object was instrumented by this instance
                     {
@@ -925,9 +924,7 @@ impl Slipcover {
         let code_bound = code_obj.bind(py);
 
         // Get code object ID and track it
-        let builtins = PyModule::import(py, "builtins")?;
-        let id_fn = builtins.getattr("id")?;
-        let code_id: usize = id_fn.call1((code_bound,))?.extract()?;
+        let code_id = code_bound.as_ptr() as usize;
 
         {
             let mut ids = self.instrumented_code_ids.lock().unwrap();
@@ -1094,10 +1091,8 @@ impl Slipcover {
 // Helper methods implementation
 impl Slipcover {
     fn _make_meta(py: Python, branch_coverage: bool) -> PyResult<Py<PyDict>> {
-        let datetime_module = PyModule::import(py, "datetime")?;
-        let datetime_class = datetime_module.getattr("datetime")?;
-        let now = datetime_class.call_method0("now")?;
-        let timestamp: String = now.call_method0("isoformat")?.extract()?;
+        let now = Local::now();
+        let timestamp = now.to_rfc3339_opts(SecondsFormat::Micros, true);
 
         let meta = PyDict::new(py);
         meta.set_item("software", "slipcover")?;
