@@ -623,7 +623,7 @@ fn print_coverage(
         }
 
         let mut table = Table::new(rows);
-        table.with(Style::modern());
+        table.with(Style::empty());
 
         // Note: missing_width parameter truncates strings before adding to table
         // so width constraint is already handled
@@ -702,7 +702,7 @@ fn print_coverage(
         }
 
         let mut table = Table::new(rows);
-        table.with(Style::modern());
+        table.with(Style::empty());
 
         // Note: missing_width parameter truncates strings before adding to table
         // so width constraint is already handled

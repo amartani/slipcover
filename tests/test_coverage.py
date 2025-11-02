@@ -429,12 +429,12 @@ def test_print_coverage(capsys):
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
-    # With tabled output, data is on line 4 (0-indexed) instead of line 3
-    # Format: │ filename │ #lines │ #l.miss │ Cover% │ Missing │
+    # With tabled Style::empty(), header is line 1, data is line 2
+    # Format: File  #lines  #l.miss  Cover%  Missing
     assert re.search(
         f"tests[/\\\\]test_coverage\\.py.*{total}.*{missd}.*{round(100 * execd / total)}.*"
         + str(base_line + 4),
-        output[4],
+        output[2],
     )
 
 
@@ -475,11 +475,11 @@ def test_print_coverage_branch(capsys):
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
-    # With tabled output, data is on line 4 (0-indexed)
-    # Format: │ filename │ #lines │ #l.miss │ #br. │ #br.miss │ brCov% │ totCov% │ Missing │
+    # With tabled Style::empty(), header is line 1, data is line 2
+    # Format: File  #lines  #l.miss  #br.  #br.miss  brCov%  totCov%  Missing
     assert re.search(
         f"foo\\.py.*{total_l}.*{miss_l}.*{total_b}.*{miss_b}.*{pct_b}.*{pct}",
-        output[4],
+        output[2],
     )
 
 
@@ -499,13 +499,13 @@ def test_print_coverage_zero_lines(do_branch, capsys):
     sci.print_coverage(sys.stdout)
     output = capsys.readouterr()[0]
     output = output.splitlines()
-    # With tabled output, data is on line 4 (0-indexed)
+    # With tabled Style::empty(), header is line 1, data is line 2
     if do_branch:
-        # Format: │ filename │ #lines │ #l.miss │ #br. │ #br.miss │ brCov% │ totCov% │ Missing │
-        assert re.search(f"foo\\.py.*0.*0.*0.*0.*0.*100", output[4])
+        # Format: File  #lines  #l.miss  #br.  #br.miss  brCov%  totCov%  Missing
+        assert re.search("foo\\.py.*0.*0.*0.*0.*0.*100", output[2])
     else:
-        # Format: │ filename │ #lines │ #l.miss │ Cover% │ Missing │
-        assert re.search(f"foo\\.py.*0.*0.*100", output[4])
+        # Format: File  #lines  #l.miss  Cover%  Missing
+        assert re.search("foo\\.py.*0.*0.*100", output[2])
 
 
 @pytest.mark.parametrize("do_branch", [True, False])
