@@ -1106,40 +1106,52 @@ impl Covers {
 
     fn _add_unseen_source_files_internal(&self, py: Python, source: Vec<String>) -> PyResult<()> {
         let ast_module = PyModule::import(py, "ast")?;
-        let pathlib_module = PyModule::import(py, "pathlib")?;
-        let path_class = pathlib_module.getattr("Path")?;
 
-        let mut dirs: Vec<Py<PyAny>> = Vec::new();
+        let mut dirs: Vec<PathBuf> = Vec::new();
         for d in source {
-            let p = path_class.call1((d,))?;
-            let resolved = p.call_method0("resolve")?;
-            dirs.push(resolved.into());
+            let p = PathBuf::from(d);
+            match p.canonicalize() {
+                Ok(resolved) => dirs.push(resolved),
+                Err(e) => return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to resolve path: {}", e))),
+            }
         }
 
         let tracker = self.tracker.bind(py).borrow();
 
         while let Some(p) = dirs.pop() {
-            let p_bound = p.bind(py);
-            let iter_dir = p_bound.call_method0("iterdir")?;
+            let entries = match std::fs::read_dir(&p) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    println!("Warning: unable to read directory {:?}: {}", p, e);
+                    continue;
+                }
+            };
 
-            for file_result in iter_dir.try_iter()? {
-                let file = file_result?;
+            for entry_result in entries {
+                let entry = match entry_result {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        println!("Warning: unable to read directory entry in {:?}: {}", p, e);
+                        continue;
+                    }
+                };
 
-                if file.call_method0("is_dir")?.extract::<bool>()? {
-                    dirs.push(file.into());
-                } else if file.call_method0("is_file")?.extract::<bool>()? {
-                    let suffix: String = file.getattr("suffix")?.extract()?;
-                    if suffix.to_lowercase() == ".py" {
-                        let absolute = file.call_method0("absolute")?;
-                        let filename: String = absolute.str()?.extract()?;
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext.to_string_lossy().to_lowercase() == "py" {
+                            let filename = path.to_string_lossy().to_string();
 
-                        // Check if file has been instrumented
-                        if !tracker.has_file(filename.clone()) {
-                            // Try to parse and compile
-                            match self._try_add_file(py, &file, &filename, &ast_module, &tracker) {
-                                Ok(_) => {},
-                                Err(e) => {
-                                    println!("Warning: unable to include {}: {}", filename, e);
+                            // Check if file has been instrumented
+                            if !tracker.has_file(filename.clone()) {
+                                // Try to parse and compile
+                                match self._try_add_file_from_path(py, &path, &filename, &ast_module, &tracker) {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        println!("Warning: unable to include {}: {}", filename, e);
+                                    }
                                 }
                             }
                         }
@@ -1151,15 +1163,16 @@ impl Covers {
         Ok(())
     }
 
-    fn _try_add_file(
+    fn _try_add_file_from_path(
         &self,
         py: Python,
-        file: &Bound<PyAny>,
+        path: &Path,
         filename: &str,
         ast_module: &Bound<PyModuleType>,
         tracker: &CoverageTracker,
     ) -> PyResult<()> {
-        let content: String = file.call_method0("read_text")?.extract()?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read file {}: {}", filename, e)))?;
         let mut tree = ast_module.call_method1("parse", (content,))?;
 
         // If branch coverage, preinstrument
