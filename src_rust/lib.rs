@@ -382,6 +382,87 @@ fn branches_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<(i32, i32)>
     Ok(branches)
 }
 
+/// Version constant
+const VERSION: &str = "1.0.17";
+
+/// Adds (or updates) 'summary' entries in coverage information
+#[pyfunction]
+fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
+    let mut g_summary_data: HashMap<String, i32> = HashMap::new();
+    let mut g_nom = 0;
+    let mut g_den = 0;
+
+    // Process files if they exist
+    if let Ok(Some(files)) = cov.get_item("files") {
+        let files_dict: &Bound<PyDict> = files.cast()?;
+
+        for (_filename, f_cov_obj) in files_dict.iter() {
+            let f_cov: &Bound<PyDict> = f_cov_obj.cast()?;
+
+            // Get executed and missing lines
+            let executed_lines = f_cov.get_item("executed_lines")?.unwrap();
+            let missing_lines = f_cov.get_item("missing_lines")?.unwrap();
+
+            let covered_lines = executed_lines.len()? as i32;
+            let missing_lines_count = missing_lines.len()? as i32;
+
+            let mut nom = covered_lines;
+            let mut den = nom + missing_lines_count;
+
+            // Create summary dict
+            let summary = PyDict::new(py);
+            summary.set_item("covered_lines", covered_lines)?;
+            summary.set_item("missing_lines", missing_lines_count)?;
+
+            // Handle branches if present
+            if let Ok(Some(executed_branches)) = f_cov.get_item("executed_branches") {
+                let missing_branches = f_cov.get_item("missing_branches")?.unwrap();
+
+                let covered_branches = executed_branches.len()? as i32;
+                let missing_branches_count = missing_branches.len()? as i32;
+
+                summary.set_item("covered_branches", covered_branches)?;
+                summary.set_item("missing_branches", missing_branches_count)?;
+
+                nom += covered_branches;
+                den += covered_branches + missing_branches_count;
+
+                // Update global summary for branches
+                *g_summary_data.entry("covered_branches".to_string()).or_insert(0) += covered_branches;
+                *g_summary_data.entry("missing_branches".to_string()).or_insert(0) += missing_branches_count;
+            }
+
+            // Calculate percent covered
+            let percent_covered = if den == 0 { 100.0 } else { 100.0 * nom as f64 / den as f64 };
+            summary.set_item("percent_covered", percent_covered)?;
+
+            // Set summary on file
+            f_cov.set_item("summary", summary)?;
+
+            // Update global summary for lines
+            *g_summary_data.entry("covered_lines".to_string()).or_insert(0) += covered_lines;
+            *g_summary_data.entry("missing_lines".to_string()).or_insert(0) += missing_lines_count;
+
+            g_nom += nom;
+            g_den += den;
+        }
+    }
+
+    // Create global summary
+    let g_summary = PyDict::new(py);
+    for (k, v) in g_summary_data {
+        g_summary.set_item(k, v)?;
+    }
+
+    let g_percent_covered = if g_den == 0 { 100.0 } else { 100.0 * g_nom as f64 / g_den as f64 };
+    g_summary.set_item("percent_covered", g_percent_covered)?;
+    g_summary.set_item("percent_covered_display", format!("{}", g_percent_covered.round() as i32))?;
+
+    cov.set_item("summary", g_summary)?;
+
+    Ok(())
+}
+
 /// Main Slipcover class
 #[pyclass]
 struct Slipcover {
@@ -580,10 +661,8 @@ impl Slipcover {
         cov.set_item("meta", meta)?;
         cov.set_item("files", files_dict)?;
 
-        // Add summaries
-        let slipcover_module = PyModule::import(py, "slipcover.slipcover")?;
-        let add_summaries = slipcover_module.getattr("add_summaries")?;
-        add_summaries.call1((&cov,))?;
+        // Add summaries using Rust implementation
+        add_summaries(py, &cov)?;
 
         Ok(cov.into())
     }
@@ -694,12 +773,9 @@ impl Slipcover {
         let now = datetime_class.call_method0("now")?;
         let timestamp: String = now.call_method0("isoformat")?.extract()?;
 
-        let version_module = PyModule::import(py, "slipcover.version")?;
-        let version: String = version_module.getattr("__version__")?.extract()?;
-
         let meta = PyDict::new(py);
         meta.set_item("software", "slipcover")?;
-        meta.set_item("version", version)?;
+        meta.set_item("version", VERSION)?;
         meta.set_item("timestamp", timestamp)?;
         meta.set_item("branch_coverage", branch_coverage)?;
         meta.set_item("show_contexts", false)?;
@@ -885,8 +961,10 @@ fn slipcover_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_branch, m)?)?;
     m.add_function(wrap_pyfunction!(lines_from_code, m)?)?;
     m.add_function(wrap_pyfunction!(branches_from_code, m)?)?;
+    m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Slipcover>()?;
+    m.add("__version__", VERSION)?;
     Ok(())
 }

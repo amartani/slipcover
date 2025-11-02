@@ -3,10 +3,8 @@ from __future__ import annotations
 import dis
 import sys
 import types
-from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from .version import __version__  # noqa: F401
 from .xmlreport import XmlReporter
 
 # Import from Rust
@@ -14,11 +12,13 @@ from .slipcover_core import (  # noqa: F401
     Slipcover,
     CoverageTracker,
     PathSimplifier,
+    add_summaries,
     branches_from_code,
     decode_branch,
     encode_branch,
     is_branch,
     lines_from_code,
+    __version__,
 )
 
 # FIXME provide __all__
@@ -173,48 +173,6 @@ def print_coverage(
     ]
     maxcolwidths = [None] * (len(headers) - 1) + [missing_width]
     print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
-
-
-def add_summaries(cov: dict) -> None:
-    """Adds (or updates) 'summary' entries in coverage information."""
-    # global summary
-    g_summary: dict = defaultdict(int)
-    g_nom = g_den = 0
-
-    if "files" in cov:
-        for f_cov in cov["files"].values():
-            summary: dict = {  # per-file summary
-                "covered_lines": len(f_cov["executed_lines"]),
-                "missing_lines": len(f_cov["missing_lines"]),
-            }
-
-            nom = summary["covered_lines"]
-            den = nom + summary["missing_lines"]
-
-            if "executed_branches" in f_cov:
-                summary.update(
-                    {
-                        "covered_branches": len(f_cov["executed_branches"]),
-                        "missing_branches": len(f_cov["missing_branches"]),
-                    }
-                )
-
-                nom += summary["covered_branches"]
-                den += summary["covered_branches"] + summary["missing_branches"]
-
-            summary["percent_covered"] = 100.0 if den == 0 else 100 * nom / den
-            f_cov["summary"] = summary
-
-            for k in summary:
-                g_summary[k] += summary[k]
-            g_nom += nom
-            g_den += den
-
-    g_summary["percent_covered"] = 100.0 if g_den == 0 else 100 * g_nom / g_den
-    g_summary["percent_covered_display"] = str(
-        int(round(g_summary["percent_covered"], 0))
-    )
-    cov["summary"] = g_summary
 
 
 def merge_coverage(a: dict, b: dict) -> dict:
