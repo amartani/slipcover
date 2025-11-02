@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from .xmlreport import XmlReporter
 
 # Import from Rust
-from .slipcover_core import (  # noqa: F401
-    Slipcover,
+from .covers_core import (  # noqa: F401
+    Covers,
     CoverageTracker,
     PathSimplifier,
     add_summaries,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from .schemas import Coverage
 
 
-class SlipcoverError(Exception):
+class CoversError(Exception):
     pass
 
 
@@ -112,17 +112,17 @@ def print_xml(
 def merge_coverage(a: dict, b: dict) -> dict:
     """Merges coverage result 'b' into 'a'."""
 
-    if a.get("meta", {}).get("software", None) != "slipcover":
-        raise SlipcoverError("Cannot merge coverage: only SlipCover format supported.")
+    if a.get("meta", {}).get("software", None) != "covers":
+        raise CoversError("Cannot merge coverage: only Covers format supported.")
 
     if a.get("meta", {}).get("show_contexts", False) or b.get("meta", {}).get(
         "show_contexts", False
     ):
-        raise SlipcoverError("Merging coverage with show_contexts=True unsupported")
+        raise CoversError("Merging coverage with show_contexts=True unsupported")
 
     branch_coverage = a.get("meta", {}).get("branch_coverage", False)
     if branch_coverage and not b.get("meta", {}).get("branch_coverage", False):
-        raise SlipcoverError("Cannot merge coverage: branch coverage missing")
+        raise CoversError("Cannot merge coverage: branch coverage missing")
 
     a_files = a["files"]
     b_files = b["files"]
@@ -156,5 +156,5 @@ def merge_coverage(a: dict, b: dict) -> dict:
     return a
 
 
-# The Slipcover class is now implemented in Rust (slipcover_core)
+# The Covers class is now implemented in Rust (covers_core)
 # All methods are available from the imported class above

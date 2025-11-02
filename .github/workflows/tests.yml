@@ -46,10 +46,10 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: python3 -m pip install pytest-forked
 
-    - name: Build and install SlipCover
+    - name: Build and install Covers
       run: |
         maturin build --release --out dist
-        python3 -m pip install --find-links=dist slipcover
+        python3 -m pip install --find-links=dist covers
 
     - name: Run tests
       run: python3 -m pytest
@@ -83,7 +83,7 @@ jobs:
 
       - name: Test building from sdist
         run: |
-          tar xzf dist/slipcover*.tar.gz
-          cd slipcover*
+          tar xzf dist/covers*.tar.gz
+          cd covers*
           python3 -m pip install maturin
           python3 -m build --wheel

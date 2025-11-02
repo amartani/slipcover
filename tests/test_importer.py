@@ -1,5 +1,5 @@
 import pytest
-import slipcover.importer as im
+import covers.importer as im
 from pathlib import Path
 import subprocess
 
@@ -213,7 +213,7 @@ def test():
 """)
 
     p = subprocess.run(
-        [sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile]
+        [sys.executable, "-m", "covers", "--silent", "-m", "pytest", "-qq", cmdfile]
     )
     assert p.returncode == 0
 
@@ -232,10 +232,10 @@ import sys
 sys.path.append('tests')
 from pathlib import Path
 
-import slipcover as sc
+import covers as sc
 
 def test():
-    sci = sc.Slipcover(branch={do_branch})
+    sci = sc.Covers(branch={do_branch})
     with sc.ImportManager(sci):
         import imported
 
@@ -246,7 +246,7 @@ def test():
 """)
 
     p = subprocess.run(
-        [sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile]
+        [sys.executable, "-m", "covers", "--silent", "-m", "pytest", "-vv", cmdfile]
     )
     assert p.returncode == 0
 
@@ -264,10 +264,10 @@ import sys
 sys.path.append('tests')
 from pathlib import Path
 
-import slipcover as sc
+import covers as sc
 
 def test():
-    sci = sc.Slipcover()
+    sci = sc.Covers()
     with sc.ImportManager(sci):
         pass
 
@@ -280,7 +280,7 @@ def test():
 """)
 
     p = subprocess.run(
-        [sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile]
+        [sys.executable, "-m", "covers", "--silent", "-m", "pytest", "-vv", cmdfile]
     )
     assert p.returncode == 0
 
@@ -299,10 +299,10 @@ import sys
 sys.path.append('tests')
 from pathlib import Path
 
-import slipcover as sc
+import covers as sc
 
 def test():
-    sci = sc.Slipcover(branch={do_branch})
+    sci = sc.Covers(branch={do_branch})
     with sc.ImportManager(sci):
         import pip
 
@@ -311,7 +311,7 @@ def test():
 """)
 
     p = subprocess.run(
-        [sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile]
+        [sys.executable, "-m", "covers", "--silent", "-m", "pytest", "-vv", cmdfile]
     )
     assert p.returncode == 0
 
@@ -323,4 +323,4 @@ import sys
 assert isinstance(sys.argv[0], str)
 """)
 
-    subprocess.run([sys.executable, "-m", "slipcover", "--silent", cmdfile], check=True)
+    subprocess.run([sys.executable, "-m", "covers", "--silent", cmdfile], check=True)

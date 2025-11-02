@@ -1,6 +1,6 @@
 import pytest
 import ast
-import slipcover.branch as br
+import covers.branch as br
 
 
 def ast_parse(s):
@@ -10,9 +10,9 @@ def ast_parse(s):
 
 
 def get_branches(code):
-    from slipcover.slipcover import Slipcover
+    from covers.covers import Covers
 
-    return sorted(Slipcover.branches_from_code(code))
+    return sorted(Covers.branches_from_code(code))
 
 
 def check_locations(node: ast.AST):

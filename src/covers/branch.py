@@ -2,7 +2,7 @@ import ast
 from typing import List, Union
 
 # Import from Rust implementation
-from .slipcover_core import encode_branch
+from .covers_core import encode_branch
 
 EXIT = 0
 

@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
 from typing import Any, Dict
-import slipcover as sc
-import slipcover.branch as br
+import covers as sc
+import covers.branch as br
 import ast
 import atexit
 import platform
@@ -151,7 +151,7 @@ def main():
     # but argparse doesn't seem to support this.  We work around that by only
     # showing it what we need.
     #
-    ap = argparse.ArgumentParser(prog="SlipCover")
+    ap = argparse.ArgumentParser(prog="Covers")
     ap.add_argument(
         "--branch", action="store_true", help="measure both branch and line coverage"
     )
@@ -208,7 +208,7 @@ def main():
         help="maximum width for `missing' column",
     )
 
-    # intended for slipcover development only
+    # intended for covers development only
     ap.add_argument("--silent", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--dis", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--debug", action="store_true", help=argparse.SUPPRESS)
@@ -259,7 +259,7 @@ def main():
         for o in args.omit.split(","):
             file_matcher.addOmit(o)
 
-    sci = sc.Slipcover(
+    sci = sc.Covers(
         immediate=args.immediate,
         d_miss_threshold=args.threshold,
         branch=args.branch,
