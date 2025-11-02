@@ -1,16 +1,17 @@
 from __future__ import annotations
-import sys
 import dis
 import types
 from typing import List, Tuple, Iterator
 
 # FIXME provide __all__
 
+
 # Python 3.10a7 changed branch opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
 def offset2branch(offset: int) -> int:
     assert offset % 2 == 0
     return offset // 2
+
 
 def branch2offset(arg: int) -> int:
     return arg * 2
@@ -315,9 +316,7 @@ class LineEntry:
                     bytecodes = (line.start - prev_end) // 2
                     while bytecodes > 0:
                         #                            print(f"->15 {min(bytecodes, 8)-1}")
-                        linetable.extend(
-                            [0x80 | (15 << 3) | (min(bytecodes, 8) - 1)]
-                        )
+                        linetable.extend([0x80 | (15 << 3) | (min(bytecodes, 8) - 1)])
                         bytecodes -= 8
 
                 line_delta = line.number - prev_number
@@ -547,8 +546,8 @@ class Editor:
             replace["co_linetable"] = LineEntry.make_linetable(
                 self.orig_code.co_firstlineno, self.lines
             )
-            replace["co_exceptiontable"] = (
-                ExceptionTableEntry.make_exceptiontable(self.ex_table)
+            replace["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(
+                self.ex_table
             )
 
         return self.orig_code.replace(**replace)
