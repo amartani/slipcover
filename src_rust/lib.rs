@@ -1139,20 +1139,16 @@ impl Covers {
                 let path = entry.path();
                 if path.is_dir() {
                     dirs.push(path);
-                } else if path.is_file() {
-                    if let Some(ext) = path.extension() {
-                        if ext.to_string_lossy().to_lowercase() == "py" {
-                            let filename = path.to_string_lossy().to_string();
+                } else if path.is_file() && let Some(ext) = path.extension() && ext.to_string_lossy().to_lowercase() == "py" {
+                    let filename = path.to_string_lossy().to_string();
 
-                            // Check if file has been instrumented
-                            if !tracker.has_file(filename.clone()) {
-                                // Try to parse and compile
-                                match self._try_add_file_from_path(py, &path, &filename, &ast_module, &tracker) {
-                                    Ok(_) => {},
-                                    Err(e) => {
-                                        println!("Warning: unable to include {}: {}", filename, e);
-                                    }
-                                }
+                    // Check if file has been instrumented
+                    if !tracker.has_file(filename.clone()) {
+                        // Try to parse and compile
+                        match self._try_add_file_from_path(py, &path, &filename, &ast_module, &tracker) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                println!("Warning: unable to include {}: {}", filename, e);
                             }
                         }
                     }
