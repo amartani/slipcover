@@ -41,3 +41,7 @@ depends = ["tests_py312", "tests_py313", "tests_py314"]
 [tasks.tests]
 description = "Run tests with Python 3.14"
 depends = ["tests_py314"]
+
+[tasks.build]
+description = "Builds the project (in development mode)"
+run = "maturin build"
