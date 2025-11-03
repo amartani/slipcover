@@ -1,13 +1,15 @@
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PySet, PyTuple, PyCFunction, PyModule as PyModuleType};
+use ahash::AHashSet;
+use chrono::prelude::*;
 use pyo3::exceptions::PyAssertionError;
+use pyo3::prelude::*;
+use pyo3::types::{PyCFunction, PyDict, PyList, PyModule as PyModuleType, PySet, PyTuple};
 use pyo3::Py;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
-use ahash::AHashSet;
-use tabled::{Table, Tabled, settings::Style};
-use chrono::prelude::*;
+use std::sync::{Arc, Mutex};
+use tabled::{settings::Style, Table, Tabled};
+
+mod branch;
 
 // Branch encoding constants
 const BRANCH_MARKER: i32 = 1 << 30;
@@ -210,7 +212,8 @@ impl CoverageTracker {
             if with_branches {
                 let code_branches = inner.code_branches.get(filename);
 
-                let mut executed_branches: Vec<(i32, i32)> = branches_seen.iter().copied().collect();
+                let mut executed_branches: Vec<(i32, i32)> =
+                    branches_seen.iter().copied().collect();
                 executed_branches.sort_unstable();
 
                 let mut missing_branches: Vec<(i32, i32)> = if let Some(cb) = code_branches {
@@ -275,8 +278,9 @@ struct PathSimplifier {
 impl PathSimplifier {
     #[new]
     fn new() -> PyResult<Self> {
-        let cwd = dunce::canonicalize(std::env::current_dir()?)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to get cwd: {}", e)))?;
+        let cwd = dunce::canonicalize(std::env::current_dir()?).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to get cwd: {}", e))
+        })?;
         Ok(PathSimplifier { cwd })
     }
 
@@ -331,11 +335,12 @@ fn lines_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<i32>> {
         let line: i32 = line_obj.extract()?;
 
         // Filter out None lines, RESUME, and RETURN_GENERATOR
-        if line != 0 &&
-           off < co_code_bytes.len() &&
-           co_code_bytes[off] != op_resume &&
-           co_code_bytes[off] != op_return_generator &&
-           !is_branch(line) {
+        if line != 0
+            && off < co_code_bytes.len()
+            && co_code_bytes[off] != op_resume
+            && co_code_bytes[off] != op_return_generator
+            && !is_branch(line)
+        {
             lines.push(line);
         }
     }
@@ -506,10 +511,10 @@ fn print_coverage(
 
     // Check if branch coverage is enabled
     let mut branch_coverage = false;
-    if let Some(meta) = coverage.get_item("meta")?
-        && let Ok(bc) = meta.get_item("branch_coverage")
-    {
-        branch_coverage = bc.extract::<bool>().unwrap_or(false);
+    if let Some(meta) = coverage.get_item("meta")? {
+        if let Ok(bc) = meta.get_item("branch_coverage") {
+            branch_coverage = bc.extract::<bool>().unwrap_or(false);
+        }
     }
 
     // Collect rows
@@ -539,7 +544,10 @@ fn print_coverage(
 
             let summary = f_info.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
-            let pct: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let pct: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             if skip_covered && (pct - 100.0).abs() < 0.01 {
                 continue;
@@ -587,11 +595,22 @@ fn print_coverage(
             let summary = coverage.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
 
-            let s_covered_lines: i32 = summary_dict.get_item("covered_lines")?.unwrap().extract()?;
-            let s_missing_lines: i32 = summary_dict.get_item("missing_lines")?.unwrap().extract()?;
-            let s_covered_branches: i32 = summary_dict.get_item("covered_branches")?.unwrap().extract()?;
-            let s_missing_branches: i32 = summary_dict.get_item("missing_branches")?.unwrap().extract()?;
-            let s_percent: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let s_covered_lines: i32 =
+                summary_dict.get_item("covered_lines")?.unwrap().extract()?;
+            let s_missing_lines: i32 =
+                summary_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let s_covered_branches: i32 = summary_dict
+                .get_item("covered_branches")?
+                .unwrap()
+                .extract()?;
+            let s_missing_branches: i32 = summary_dict
+                .get_item("missing_branches")?
+                .unwrap()
+                .extract()?;
+            let s_percent: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             let total_b = s_covered_branches + s_missing_branches;
             let pct_b = if total_b > 0 {
@@ -641,7 +660,10 @@ fn print_coverage(
 
             let summary = f_info.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
-            let pct: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let pct: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             if skip_covered && (pct - 100.0).abs() < 0.01 {
                 continue;
@@ -681,9 +703,14 @@ fn print_coverage(
             let summary = coverage.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
 
-            let s_covered_lines: i32 = summary_dict.get_item("covered_lines")?.unwrap().extract()?;
-            let s_missing_lines: i32 = summary_dict.get_item("missing_lines")?.unwrap().extract()?;
-            let s_percent: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let s_covered_lines: i32 =
+                summary_dict.get_item("covered_lines")?.unwrap().extract()?;
+            let s_missing_lines: i32 =
+                summary_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let s_percent: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             rows.push(SimpleCoverageRow {
                 file: "---".to_string(),
@@ -772,20 +799,32 @@ fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
                 den += covered_branches + missing_branches_count;
 
                 // Update global summary for branches
-                *g_summary_data.entry("covered_branches".to_string()).or_insert(0) += covered_branches;
-                *g_summary_data.entry("missing_branches".to_string()).or_insert(0) += missing_branches_count;
+                *g_summary_data
+                    .entry("covered_branches".to_string())
+                    .or_insert(0) += covered_branches;
+                *g_summary_data
+                    .entry("missing_branches".to_string())
+                    .or_insert(0) += missing_branches_count;
             }
 
             // Calculate percent covered
-            let percent_covered = if den == 0 { 100.0 } else { 100.0 * nom as f64 / den as f64 };
+            let percent_covered = if den == 0 {
+                100.0
+            } else {
+                100.0 * nom as f64 / den as f64
+            };
             summary.set_item("percent_covered", percent_covered)?;
 
             // Set summary on file
             f_cov.set_item("summary", summary)?;
 
             // Update global summary for lines
-            *g_summary_data.entry("covered_lines".to_string()).or_insert(0) += covered_lines;
-            *g_summary_data.entry("missing_lines".to_string()).or_insert(0) += missing_lines_count;
+            *g_summary_data
+                .entry("covered_lines".to_string())
+                .or_insert(0) += covered_lines;
+            *g_summary_data
+                .entry("missing_lines".to_string())
+                .or_insert(0) += missing_lines_count;
 
             g_nom += nom;
             g_den += den;
@@ -798,9 +837,16 @@ fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
         g_summary.set_item(k, v)?;
     }
 
-    let g_percent_covered = if g_den == 0 { 100.0 } else { 100.0 * g_nom as f64 / g_den as f64 };
+    let g_percent_covered = if g_den == 0 {
+        100.0
+    } else {
+        100.0 * g_nom as f64 / g_den as f64
+    };
     g_summary.set_item("percent_covered", g_percent_covered)?;
-    g_summary.set_item("percent_covered_display", format!("{}", g_percent_covered.round() as i32))?;
+    g_summary.set_item(
+        "percent_covered_display",
+        format!("{}", g_percent_covered.round() as i32),
+    )?;
 
     cov.set_item("summary", g_summary)?;
 
@@ -859,7 +905,9 @@ impl Covers {
         let coverage_id = monitoring.getattr("COVERAGE_ID")?;
         let current_tool = monitoring.call_method1("get_tool", (&coverage_id,))?;
 
-        if current_tool.is_none() || current_tool.extract::<String>().ok() != Some("Covers".to_string()) {
+        if current_tool.is_none()
+            || current_tool.extract::<String>().ok() != Some("Covers".to_string())
+        {
             monitoring.call_method1("use_tool_id", (&coverage_id, "Covers"))?;
         }
 
@@ -905,13 +953,21 @@ impl Covers {
         // Register the callback
         let events = monitoring.getattr("events")?;
         let line_event = events.getattr("LINE")?;
-        monitoring.call_method1("register_callback", (&coverage_id, &line_event, handle_line))?;
+        monitoring.call_method1(
+            "register_callback",
+            (&coverage_id, &line_event, handle_line),
+        )?;
 
         Ok(slf)
     }
 
     #[pyo3(signature = (co, parent=None))]
-    fn instrument(&mut self, py: Python, co: Py<PyAny>, parent: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
+    fn instrument(
+        &mut self,
+        py: Python,
+        co: Py<PyAny>,
+        parent: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let co_bound = co.bind(py);
 
         // If it's a function, get its __code__
@@ -1016,7 +1072,11 @@ impl Covers {
     }
 
     #[staticmethod]
-    fn find_functions(py: Python, items: Py<PyAny>, visited: Py<PySet>) -> PyResult<Vec<Py<PyAny>>> {
+    fn find_functions(
+        py: Python,
+        items: Py<PyAny>,
+        visited: Py<PySet>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
         // Import types module
         let types_module = PyModule::import(py, "types")?;
         let function_type = types_module.getattr("FunctionType")?;
@@ -1031,7 +1091,14 @@ impl Covers {
         let items_list: Vec<Py<PyAny>> = list_fn.call1((items,))?.extract()?;
 
         for item in items_list {
-            Self::find_funcs_recursive(py, item, visited_set, &mut results, &function_type, &code_type)?;
+            Self::find_funcs_recursive(
+                py,
+                item,
+                visited_set,
+                &mut results,
+                &function_type,
+                &code_type,
+            )?;
         }
 
         Ok(results)
@@ -1052,7 +1119,12 @@ impl Covers {
     }
 
     #[pyo3(signature = (outfile=None, missing_width=None))]
-    fn print_coverage(&mut self, py: Python, outfile: Option<Py<PyAny>>, missing_width: Option<usize>) -> PyResult<()> {
+    fn print_coverage(
+        &mut self,
+        py: Python,
+        outfile: Option<Py<PyAny>>,
+        missing_width: Option<usize>,
+    ) -> PyResult<()> {
         // Get coverage first
         let cov = self.get_coverage(py)?;
         let cov_bound = cov.bind(py);
@@ -1063,7 +1135,10 @@ impl Covers {
     }
 
     fn __str__(&self, _py: Python) -> PyResult<String> {
-        Ok(format!("Covers(branch={}, immediate={})", self.branch, self.immediate))
+        Ok(format!(
+            "Covers(branch={}, immediate={})",
+            self.branch, self.immediate
+        ))
     }
 
     // Property getters
@@ -1112,7 +1187,12 @@ impl Covers {
             let p = PathBuf::from(d);
             match dunce::canonicalize(&p) {
                 Ok(resolved) => dirs.push(resolved),
-                Err(e) => return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to resolve path {:?}: {}", p, e))),
+                Err(e) => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!(
+                        "Failed to resolve path {:?}: {}",
+                        p, e
+                    )))
+                }
             }
         }
 
@@ -1139,16 +1219,26 @@ impl Covers {
                 let path = entry.path();
                 if path.is_dir() {
                     dirs.push(path);
-                } else if path.is_file() && let Some(ext) = path.extension() && ext.to_string_lossy().to_lowercase() == "py" {
-                    let filename = path.to_string_lossy().to_string();
+                } else if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext.to_string_lossy().to_lowercase() == "py" {
+                            let filename = path.to_string_lossy().to_string();
 
-                    // Check if file has been instrumented
-                    if !tracker.has_file(filename.clone()) {
-                        // Try to parse and compile
-                        match self._try_add_file_from_path(py, &path, &filename, &ast_module, &tracker) {
-                            Ok(_) => {},
-                            Err(e) => {
-                                println!("Warning: unable to include {}: {}", filename, e);
+                            // Check if file has been instrumented
+                            if !tracker.has_file(filename.clone()) {
+                                // Try to parse and compile
+                                match self._try_add_file_from_path(
+                                    py,
+                                    &path,
+                                    &filename,
+                                    &ast_module,
+                                    &tracker,
+                                ) {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        println!("Warning: unable to include {}: {}", filename, e);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1167,15 +1257,17 @@ impl Covers {
         ast_module: &Bound<PyModuleType>,
         tracker: &CoverageTracker,
     ) -> PyResult<()> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read file {}: {}", filename, e)))?;
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                "Failed to read file {}: {}",
+                filename, e
+            ))
+        })?;
         let mut tree = ast_module.call_method1("parse", (content,))?;
 
-        // If branch coverage, preinstrument
+        // If branch coverage, preinstrument using Rust implementation
         if self.branch {
-            let branch_module = PyModule::import(py, "covers.branch")?;
-            let preinstrument = branch_module.getattr("preinstrument")?;
-            tree = preinstrument.call1((tree,))?;
+            tree = branch::preinstrument_rust(py, tree)?.into_bound(py);
         }
 
         // Compile
@@ -1249,7 +1341,14 @@ impl Covers {
                             let base_dict = base.getattr("__dict__")?;
                             if base_dict.contains(&obj_key)? {
                                 let item = base_dict.get_item(&obj_key)?;
-                                Self::find_funcs_recursive(py, item.into(), visited, results, function_type, code_type)?;
+                                Self::find_funcs_recursive(
+                                    py,
+                                    item.into(),
+                                    visited,
+                                    results,
+                                    function_type,
+                                    code_type,
+                                )?;
                                 break;
                             }
                         }
@@ -1260,21 +1359,25 @@ impl Covers {
         }
 
         // Check if it's a classmethod or staticmethod
-        let classmethod_type = py.get_type::<pyo3::types::PyType>().call1(("classmethod",))?;
-        let staticmethod_type = py.get_type::<pyo3::types::PyType>().call1(("staticmethod",))?;
+        let classmethod_type = py
+            .get_type::<pyo3::types::PyType>()
+            .call1(("classmethod",))?;
+        let staticmethod_type = py
+            .get_type::<pyo3::types::PyType>()
+            .call1(("staticmethod",))?;
 
-        if (root_type.is_subclass(&classmethod_type)? || root_type.is_subclass(&staticmethod_type)?)
-            && let Ok(func) = root_bound.getattr("__func__") {
-            let func_type = func.get_type();
-            if func_type.is_subclass(function_type)? {
-                let func_code = func.getattr("__code__")?;
-                let func_code_type = func_code.get_type();
+        if root_type.is_subclass(&classmethod_type)? || root_type.is_subclass(&staticmethod_type)? {
+            if let Ok(func) = root_bound.getattr("__func__") {
+                let func_type = func.get_type();
+                if func_type.is_subclass(function_type)? {
+                    let func_code = func.getattr("__code__")?;
+                    let func_code_type = func_code.get_type();
 
-                if func_code_type.is(code_type)
-                    && !visited.contains(&func)? {
-                    visited.add(&func)?;
-                    let func_py: Py<PyAny> = func.into();
-                    results.push(func_py);
+                    if func_code_type.is(code_type) && !visited.contains(&func)? {
+                        visited.add(&func)?;
+                        let func_py: Py<PyAny> = func.into();
+                        results.push(func_py);
+                    }
                 }
             }
         }
@@ -1293,6 +1396,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(branches_from_code, m)?)?;
     m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
     m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
+    m.add_function(wrap_pyfunction!(branch::preinstrument_rust, m)?)?;
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Covers>()?;
