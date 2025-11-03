@@ -19,28 +19,29 @@ run = "cargo clippy --all-targets --all-features -- -D warnings"
 description = "Run all linting tasks"
 depends = ["python_lint", "rust_lint"]
 
-[tasks.tests_py312]
+[tasks.test_py312]
 description = "Run pytest with Python 3.12"
 tools.python = "3.12"
-run = "uv tool run --with tox-uv tox -e py312"
+usage = 'arg "[files]" var=#true help="Files to test"'
+run = "uv tool run --with tox-uv tox -q -e py312 -- ${usage_files}"
 
-[tasks.tests_py313]
+[tasks.test_py313]
 description = "Run pytest with Python 3.13"
 tools.python = "3.13"
-run = "uv tool run --with tox-uv tox -e py313"
+usage = 'arg "[files]" var=#true help="Files to test"'
+run = "uv tool run --with tox-uv tox -q -e py313 -- ${usage_files}"
 
-[tasks.tests_py314]
+[tasks.test_py314]
 description = "Run pytest with Python 3.14"
 tools.python = "3.14"
-run = "uv tool run --with tox-uv tox -e py314"
+alias = "test"
+usage = 'arg "[files]" var=#true help="Files to test"'
+run = "uv tool run --with tox-uv tox -q -e py314 -- ${usage_files}"
 
-[tasks.tests_all_versions]
+[tasks.test_all_versions]
 description = "Run tests on all Python versions (3.12, 3.13, 3.14)"
-depends = ["tests_py312", "tests_py313", "tests_py314"]
-
-[tasks.tests]
-description = "Run tests with Python 3.14"
-depends = ["tests_py314"]
+usage = 'arg "[files]" var=#true help="Files to test"'
+run = "mise run test_py312 ${usage_files} ::: test_py313 ${usage_files} ::: test_py314 ${usage_files}"
 
 [tasks.build]
 description = "Builds the project (in development mode)"
