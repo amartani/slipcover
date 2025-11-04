@@ -115,6 +115,11 @@ fn find_branches_recursive(
 
     match kind {
         "if_statement" => handle_if_statement(node, source, next_nodes, branches)?,
+        "elif_clause" => {
+            // Handle elif as an if_statement
+            // Find the condition and body
+            handle_elif_as_if(node, source, next_nodes, branches)?;
+        }
         "for_statement" | "while_statement" => handle_loop_statement(node, source, next_nodes, branches)?,
         "match_statement" => handle_match_statement(node, source, next_nodes, branches)?,
         _ => {
@@ -125,6 +130,54 @@ fn find_branches_recursive(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+fn handle_elif_as_if(
+    node: &Node,
+    source: &str,
+    next_nodes: &HashMap<usize, usize>,
+    branches: &mut Vec<BranchInfo>
+) -> Result<(), String> {
+    // elif_clause has similar structure to if_statement
+    // It has condition and consequence fields, and optionally alternative
+    let branch_line = node.start_position().row + 1; // 1-indexed
+    let mut markers = Vec::new();
+
+    // Find the consequence (elif body)
+    if let Some(consequence) = node.child_by_field_name("consequence") {
+        let body_first_line = find_first_statement_line(&consequence);
+        if let Some(first_line) = body_first_line {
+            markers.push((first_line, first_line));
+        }
+    }
+
+    // Find the alternative (else/elif)
+    if let Some(alternative) = node.child_by_field_name("alternative") {
+        let alt_first_line = find_first_statement_line(&alternative);
+        if let Some(first_line) = alt_first_line {
+            markers.push((first_line, first_line));
+        }
+    } else {
+        // No else clause - branch to next statement after elif
+        let next_line = next_nodes.get(&node.id()).copied().unwrap_or(0);
+        markers.push((0, next_line)); // 0 means "append to orelse"
+    }
+
+    branches.push(BranchInfo {
+        branch_line,
+        markers,
+    });
+
+    // Recurse into consequence and alternative
+    if let Some(consequence) = node.child_by_field_name("consequence") {
+        find_branches_recursive(&consequence, source, next_nodes, branches)?;
+    }
+
+    if let Some(alternative) = node.child_by_field_name("alternative") {
+        find_branches_recursive(&alternative, source, next_nodes, branches)?;
     }
 
     Ok(())
@@ -149,9 +202,19 @@ fn handle_if_statement(
 
     // Find the alternative (else/elif)
     if let Some(alternative) = node.child_by_field_name("alternative") {
-        let alt_first_line = find_first_statement_line(&alternative);
-        if let Some(first_line) = alt_first_line {
-            markers.push((first_line, first_line));
+        let alt_kind = alternative.kind();
+
+        if alt_kind == "elif_clause" {
+            // elif - add marker pointing to the elif line
+            // The elif will create its own branches when processed recursively
+            let elif_line = alternative.start_position().row + 1;
+            markers.push((elif_line, elif_line));
+        } else {
+            // Regular else clause - add marker to first statement
+            let alt_first_line = find_first_statement_line(&alternative);
+            if let Some(first_line) = alt_first_line {
+                markers.push((first_line, first_line));
+            }
         }
     } else {
         // No else clause - branch to next statement after if
@@ -164,11 +227,14 @@ fn handle_if_statement(
         markers,
     });
 
-    // Recurse into children to find nested branches
-    for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
-            find_branches_recursive(&child, source, next_nodes, branches)?;
-        }
+    // Recurse into consequence to find nested branches
+    if let Some(consequence) = node.child_by_field_name("consequence") {
+        find_branches_recursive(&consequence, source, next_nodes, branches)?;
+    }
+
+    // Recurse into alternative to find nested branches (including elif if_statements)
+    if let Some(alternative) = node.child_by_field_name("alternative") {
+        find_branches_recursive(&alternative, source, next_nodes, branches)?;
     }
 
     Ok(())
@@ -270,18 +336,35 @@ fn handle_match_statement(
 }
 
 fn find_first_statement_line(node: &Node) -> Option<usize> {
-    if is_statement(node) {
-        return Some(node.start_position().row + 1);
+    let kind = node.kind();
+
+    // Special handling for structural nodes that contain blocks
+    if matches!(kind, "else_clause" | "elif_clause" | "finally_clause") {
+        // These nodes have a body - recurse into it
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                if let Some(line) = find_first_statement_line(&child) {
+                    return Some(line);
+                }
+            }
+        }
+        return None;
     }
 
     // If it's a block, find the first statement child
-    if node.kind() == "block" {
+    if kind == "block" {
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
                 && is_statement(&child) {
                     return Some(child.start_position().row + 1);
                 }
         }
+        return None;
+    }
+
+    // If this is a statement itself, return its line
+    if is_statement(node) {
+        return Some(node.start_position().row + 1);
     }
 
     // Check all children

@@ -325,9 +325,10 @@ def main():
 
         with open(args.script, "r") as f:
             source = f.read()
-            t = ast.parse(source)
             if args.branch and file_matcher.matches(args.script):
-                t = br.preinstrument(source, t)
+                t = br.preinstrument(source)
+            else:
+                t = ast.parse(source)
             code = compile(t, str(Path(args.script).resolve()), "exec")
 
         if file_matcher.matches(args.script):

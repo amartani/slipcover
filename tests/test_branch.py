@@ -38,21 +38,24 @@ def check_locations(node: ast.AST):
 
 
 def test_if():
-    t = ast_parse("""
+    source = """
         if x == 0:
             x += 2
 
         x += 3
-    """)
+    """
+    import inspect
 
-    t = br.preinstrument(t)
+    source = inspect.cleandoc(source)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 2), (1, 4)] == get_branches(code)
 
 
 def test_if_else():
-    t = ast_parse("""
+    import inspect
+    source = """
         if x == 0:
             x += 1
 
@@ -61,16 +64,18 @@ def test_if_else():
             x += 2
 
         x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 2), (1, 6)] == get_branches(code)
 
 
 def test_if_elif_else():
-    t = ast_parse("""
+    import inspect
+    source = """
         if x == 0:
             x += 1
         elif x == 1:
@@ -79,29 +84,33 @@ def test_if_elif_else():
             x += 3
 
         x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 2), (1, 3), (3, 4), (3, 6)] == get_branches(code)
 
 
 def test_if_nothing_after_it():
-    t = ast_parse("""
+    import inspect
+    source = """
         if x == 0:
             x += 1
 
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 0), (1, 2)] == get_branches(code)
 
 
 def test_if_nested():
-    t = ast_parse("""
+    import inspect
+    source = """
         if x >= 0:
             y = 1
             if x > 1:
@@ -113,9 +122,10 @@ def test_if_nested():
                 y = 3
             y += 10
         z = 0
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [
@@ -131,7 +141,8 @@ def test_if_nested():
 
 
 def test_if_in_function():
-    t = ast_parse("""
+    import inspect
+    source = """
         def foo(x):
             if x >= 0:
                 return 1
@@ -146,16 +157,18 @@ def test_if_in_function():
                     self.x = 0
 
         foo(-1)
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 0), (2, 3), (6, 0), (6, 7), (11, 0), (11, 12)] == get_branches(code)
 
 
 def test_keep_docstrings():
-    t = ast_parse("""
+    import inspect
+    source = """
         def foo(x):
             \"\"\"foo something\"\"\"
             if x >= 0:
@@ -173,10 +186,11 @@ def test_keep_docstrings():
                     self.x = 0
 
         foo(-1)
-    """)
+    """
+    source = inspect.cleandoc(source)
     #    print(ast.dump(t, indent=True))
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(3, 0), (3, 4), (8, 0), (8, 9), (14, 0), (14, 15)] == get_branches(code)
@@ -190,7 +204,9 @@ def test_keep_docstrings():
 
 
 def test_branch_bad_positions():
-    t = ast_parse("""\
+    import inspect
+
+    source = """\
 def foo(x):
     if x == 0:
         t = '''\\
@@ -200,9 +216,10 @@ x == 0
         t = '''\\
 x != 0
 '''
-""")
+"""
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     # on Python 3.12.3, compile() raises a ValueError due to failing
     # the VALIDATE_POSITIONS checks from Python/ast.c
     compile(t, "foo.py", "exec")
@@ -210,22 +227,25 @@ x != 0
 
 
 def test_for():
-    t = ast_parse("""
+    import inspect
+    source = """
         for v in [1, 2]:
             if v > 0:
                 x += v
 
         x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 2), (1, 5), (2, 1), (2, 3)] == get_branches(code)
 
 
 def test_async_for():
-    t = ast_parse("""
+    import inspect
+    source = """
         import asyncio
 
         async def fun():
@@ -241,47 +261,53 @@ def test_async_for():
             x += 3
 
         asyncio.run(fun())
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(10, 11), (10, 13), (11, 12), (11, 13)] == get_branches(code)
 
 
 def test_for_else():
-    t = ast_parse("""
+    import inspect
+    source = """
         for v in [1, 2]:
             if v > 0:
                 x += v
         else:
             x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 2), (1, 5), (2, 1), (2, 3)] == get_branches(code)
 
 
 def test_for_break_else():
-    t = ast_parse("""
+    import inspect
+    source = """
         for v in [1, 2]:
             if v > 0:
                 x += v
             break
         else:
             x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1, 2), (1, 6), (2, 3), (2, 4)] == get_branches(code)
 
 
 def test_while():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 2
         while v > 0:
             v -= 1
@@ -289,16 +315,18 @@ def test_while():
                 x += v
 
         x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 3), (2, 7), (4, 2), (4, 5)] == get_branches(code)
 
 
 def test_while_else():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 2
         while v > 0:
             v -= 1
@@ -306,16 +334,18 @@ def test_while_else():
                 x += v
         else:
             x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 3), (2, 7), (4, 2), (4, 5)] == get_branches(code)
 
 
 def test_while_break_else():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 2
         while v > 0:
             v -= 1
@@ -324,16 +354,18 @@ def test_while_break_else():
             break
         else:
             x += 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 3), (2, 8), (4, 5), (4, 6)] == get_branches(code)
 
 
 def test_match():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 2
         match v:
             case 1:
@@ -341,16 +373,18 @@ def test_match():
             case 2:
                 x = 2
         x += 2
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 4), (2, 6), (2, 7)] == get_branches(code)
 
 
 def test_match_case_with_false_guard():
-    t = ast_parse("""
+    import inspect
+    source = """
         x = 0
         v = 1
         match v:
@@ -359,46 +393,52 @@ def test_match_case_with_false_guard():
             case 1:
                 x = 2
         x += 2
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(3, 5), (3, 7), (3, 8)] == get_branches(code)
 
 
 def test_match_case_with_guard_isnt_wildcard():
-    t = ast_parse("""
+    import inspect
+    source = """
         def fun(v):
             match v:
                 case _ if v > 0:
                     print("not default")
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 0), (2, 4)] == get_branches(code)
 
 
 def test_match_branch_to_exit():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 5
         match v:
             case 1:
                 x = 1
             case 2:
                 x = 2
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 0), (2, 4), (2, 6)] == get_branches(code)
 
 
 def test_match_default():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 5
         match v:
             case 1:
@@ -407,16 +447,18 @@ def test_match_default():
                 x = 2
             case _:
                 x = 3
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 4), (2, 6), (2, 8)] == get_branches(code)
 
 
 def test_branch_after_case():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 1
         match v:
             case 1:
@@ -425,9 +467,10 @@ def test_branch_after_case():
             case 2:
                 if x < 0:  #7
                     x = 1
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 0), (2, 4), (2, 7), (4, 0), (4, 5), (7, 0), (7, 8)] == get_branches(
@@ -436,7 +479,8 @@ def test_branch_after_case():
 
 
 def test_branch_after_case_with_default():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 1
         match v:
             case 1:
@@ -448,9 +492,10 @@ def test_branch_after_case_with_default():
             case _:
                 if x < 0:  #10
                     x = 1
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [
@@ -467,7 +512,8 @@ def test_branch_after_case_with_default():
 
 
 def test_branch_after_case_with_next():
-    t = ast_parse("""
+    import inspect
+    source = """
         v = 1
         match v:
             case 1:
@@ -477,9 +523,10 @@ def test_branch_after_case_with_next():
                 if x < 0:  #7
                     x = 1
         x += 1
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 4), (2, 7), (2, 9), (4, 5), (4, 9), (7, 8), (7, 9)] == get_branches(
@@ -489,30 +536,35 @@ def test_branch_after_case_with_next():
 
 def test_match_wildcard_in_match_or():
     # Thanks to Ned Batchelder for this test case
-    t = ast_parse("""
+    import inspect
+
+    source = """
             def absurd(x):
                 match x:
                     case (3 | 99 | (999 | _)):
                         print("default")
             absurd(5)
-            """)
+            """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 4)] == get_branches(code)
 
 
 def test_match_capture():
-    t = ast_parse("""
+    import inspect
+    source = """
             def capture(x):
                 match x:
                     case y:
                         print("default")
             capture(5)
-            """)
+            """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2, 4)] == get_branches(code)
@@ -520,7 +572,9 @@ def test_match_capture():
 
 @pytest.mark.parametrize("star", ["", "*"])
 def test_try_except(star):
-    t = ast_parse(f"""
+    import inspect
+
+    source = f"""
         def foo(x):
             try:
                 y = x + 1
@@ -534,16 +588,20 @@ def test_try_except(star):
                     y = 0
 
             return 2*y
-    """)
+    """
 
-    t = br.preinstrument(t)
+
+    source = inspect.cleandoc(source)
+
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4, 5), (4, 13), (7, 8), (7, 13), (10, 11), (10, 13)] == get_branches(code)
 
 
 def test_try_finally():
-    t = ast_parse("""
+    import inspect
+    source = """
         def foo(x):
             try:
                 y = x + 1
@@ -551,9 +609,10 @@ def test_try_finally():
                     y = 0
             finally:
                 y = 2*y
-    """)
+    """
+    source = inspect.cleandoc(source)
 
-    t = br.preinstrument(t)
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4, 5), (4, 7)] == get_branches(code)
@@ -561,7 +620,9 @@ def test_try_finally():
 
 @pytest.mark.parametrize("star", ["", "*"])
 def test_try_else(star):
-    t = ast_parse(f"""
+    import inspect
+
+    source = f"""
         def foo(x):
             try:
                 y = x + 1
@@ -572,9 +633,11 @@ def test_try_else(star):
                     y = -1
             else:
                 y = 2*y
-    """)
+    """
 
-    t = br.preinstrument(t)
+    source = inspect.cleandoc(source)
+
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4, 5), (4, 10), (7, 0), (7, 8)] == get_branches(code)
@@ -582,7 +645,9 @@ def test_try_else(star):
 
 @pytest.mark.parametrize("star", ["", "*"])
 def test_try_else_finally(star):
-    t = ast_parse(f"""
+    import inspect
+
+    source = f"""
         def foo(x):
             try:
                 y = x + 1
@@ -596,9 +661,11 @@ def test_try_else_finally(star):
                     y = 42
             finally:
                 y = 2*y
-    """)
+    """
 
-    t = br.preinstrument(t)
+    source = inspect.cleandoc(source)
+
+    t = br.preinstrument(source)
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4, 5), (4, 10), (7, 8), (7, 13), (10, 11), (10, 13)] == get_branches(code)

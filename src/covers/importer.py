@@ -261,7 +261,8 @@ def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
             # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
             # *should* be innocuous if not followed by sci.instrument.
             # args[0] is mod (AST), args[1] is source
-            args = (br.preinstrument(args[1], args[0]), *args[1:])
+            # preinstrument now takes source and returns modified AST
+            args = (br.preinstrument(args[1]), *args[1:])
             return orig_rewrite_asserts(*args)
 
         def adjust_name(fn: Path) -> Path:

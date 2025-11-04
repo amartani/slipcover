@@ -57,11 +57,13 @@ def decode_linetable(co):
 import ast
 
 with open(args.file, "r") as f:
-    t = ast.parse(f.read())
+    source = f.read()
 
 if args.branch:
-    import slipcover.branch as br
-    t = br.preinstrument(t)
+    import covers.branch as br
+    t = br.preinstrument(source)
+else:
+    t = ast.parse(source)
 
 code = compile(t, args.file, "exec")
 

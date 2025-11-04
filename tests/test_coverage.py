@@ -235,7 +235,9 @@ asyncio.run(foo(3))
 
 
 def test_branches():
-    t = ast_parse("""
+    import inspect
+
+    source = """
         def foo(x):
             if x >= 0:
                 if x > 1:
@@ -247,8 +249,10 @@ def test_branches():
                 return 0
 
         foo(2)
-    """)
-    t = br.preinstrument(t)
+    """
+
+    source = inspect.cleandoc(source)
+    t = br.preinstrument(source)
 
     sci = sc.Covers(branch=True)
     code = compile(t, "foo", "exec")
@@ -314,7 +318,9 @@ def test_branch_into_line_block(x):
 
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_meta_in_results(do_branch):
-    t = ast_parse("""
+    import inspect
+
+    source = """
         def foo(x):
             if x >= 0:
                 if x > 1:
@@ -451,8 +457,10 @@ def test_print_coverage_branch(capsys):
                 return 0
 
         foo(2)
-    """)
-    t = br.preinstrument(t)
+    """
+
+    source = inspect.cleandoc(source)
+    t = br.preinstrument(source)
 
     sci = sc.Covers(branch=True)
     code = compile(t, "foo.py", "exec")
