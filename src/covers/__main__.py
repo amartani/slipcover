@@ -324,9 +324,10 @@ def main():
         sys.path.insert(0, str(base_path))
 
         with open(args.script, "r") as f:
-            t = ast.parse(f.read())
+            source = f.read()
+            t = ast.parse(source)
             if args.branch and file_matcher.matches(args.script):
-                t = br.preinstrument(t)
+                t = br.preinstrument(source, t)
             code = compile(t, str(Path(args.script).resolve()), "exec")
 
         if file_matcher.matches(args.script):
