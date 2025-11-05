@@ -86,6 +86,39 @@ fn compute_next_nodes_recursive(
         return;
     }
 
+    // Special handling for match_statement: all cases should use match's next, not next case
+    if kind == "match_statement" {
+        // Find the body block and process each case_clause with parent_next
+        if let Some(body) = node.child_by_field_name("body") {
+            // Process each case_clause in the body with parent_next
+            for i in 0..body.child_count() {
+                if let Some(case) = body.child(i) {
+                    if case.kind() == "case_clause" {
+                        compute_next_nodes_recursive(&case, source, parent_next, next_nodes);
+                    }
+                }
+            }
+        }
+
+        // Process non-body children
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i)
+                && node.field_name_for_child(i as u32) != Some("body") {
+                compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
+            }
+        }
+        return;
+    }
+
+    // Special handling for case_clause: process case body with parent_next
+    if kind == "case_clause" {
+        // Process case body with parent_next (next after match, not next case)
+        if let Some(body) = node.child_by_field_name("consequence") {
+            compute_next_nodes_recursive(&body, source, parent_next, next_nodes);
+        }
+        return;
+    }
+
     // Special handling for try_statement: try body should go to else (if exists) then finally
     if kind == "try_statement" {
         // Find else and finally clauses
