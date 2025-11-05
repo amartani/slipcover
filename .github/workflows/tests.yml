@@ -38,6 +38,7 @@ jobs:
       uses: astral-sh/setup-uv@v5
 
     - name: Run tests with tox
+      shell: bash
       run: |
         # Convert Python version (e.g., 3.12) to tox env (e.g., py312)
         TOX_ENV="py$(echo ${{ matrix.python }} | tr -d '.')"
