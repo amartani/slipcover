@@ -1,5 +1,5 @@
 import ast
-from typing import List, Union, Optional
+from typing import List, Union
 
 # Import from Rust implementation
 from .covers_core import encode_branch, analyze_branches_ts

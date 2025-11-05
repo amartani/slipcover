@@ -55,6 +55,7 @@ def test_if():
 
 def test_if_else():
     import inspect
+
     source = """
         if x == 0:
             x += 1
@@ -75,6 +76,7 @@ def test_if_else():
 
 def test_if_elif_else():
     import inspect
+
     source = """
         if x == 0:
             x += 1
@@ -95,6 +97,7 @@ def test_if_elif_else():
 
 def test_if_nothing_after_it():
     import inspect
+
     source = """
         if x == 0:
             x += 1
@@ -110,6 +113,7 @@ def test_if_nothing_after_it():
 
 def test_if_nested():
     import inspect
+
     source = """
         if x >= 0:
             y = 1
@@ -142,6 +146,7 @@ def test_if_nested():
 
 def test_if_in_function():
     import inspect
+
     source = """
         def foo(x):
             if x >= 0:
@@ -168,6 +173,7 @@ def test_if_in_function():
 
 def test_keep_docstrings():
     import inspect
+
     source = """
         def foo(x):
             \"\"\"foo something\"\"\"
@@ -228,6 +234,7 @@ x != 0
 
 def test_for():
     import inspect
+
     source = """
         for v in [1, 2]:
             if v > 0:
@@ -245,6 +252,7 @@ def test_for():
 
 def test_async_for():
     import inspect
+
     source = """
         import asyncio
 
@@ -272,6 +280,7 @@ def test_async_for():
 
 def test_for_else():
     import inspect
+
     source = """
         for v in [1, 2]:
             if v > 0:
@@ -289,6 +298,7 @@ def test_for_else():
 
 def test_for_break_else():
     import inspect
+
     source = """
         for v in [1, 2]:
             if v > 0:
@@ -307,6 +317,7 @@ def test_for_break_else():
 
 def test_while():
     import inspect
+
     source = """
         v = 2
         while v > 0:
@@ -326,6 +337,7 @@ def test_while():
 
 def test_while_else():
     import inspect
+
     source = """
         v = 2
         while v > 0:
@@ -345,6 +357,7 @@ def test_while_else():
 
 def test_while_break_else():
     import inspect
+
     source = """
         v = 2
         while v > 0:
@@ -365,6 +378,7 @@ def test_while_break_else():
 
 def test_match():
     import inspect
+
     source = """
         v = 2
         match v:
@@ -384,6 +398,7 @@ def test_match():
 
 def test_match_case_with_false_guard():
     import inspect
+
     source = """
         x = 0
         v = 1
@@ -404,6 +419,7 @@ def test_match_case_with_false_guard():
 
 def test_match_case_with_guard_isnt_wildcard():
     import inspect
+
     source = """
         def fun(v):
             match v:
@@ -420,6 +436,7 @@ def test_match_case_with_guard_isnt_wildcard():
 
 def test_match_branch_to_exit():
     import inspect
+
     source = """
         v = 5
         match v:
@@ -438,6 +455,7 @@ def test_match_branch_to_exit():
 
 def test_match_default():
     import inspect
+
     source = """
         v = 5
         match v:
@@ -458,6 +476,7 @@ def test_match_default():
 
 def test_branch_after_case():
     import inspect
+
     source = """
         v = 1
         match v:
@@ -480,6 +499,7 @@ def test_branch_after_case():
 
 def test_branch_after_case_with_default():
     import inspect
+
     source = """
         v = 1
         match v:
@@ -513,6 +533,7 @@ def test_branch_after_case_with_default():
 
 def test_branch_after_case_with_next():
     import inspect
+
     source = """
         v = 1
         match v:
@@ -555,6 +576,7 @@ def test_match_wildcard_in_match_or():
 
 def test_match_capture():
     import inspect
+
     source = """
             def capture(x):
                 match x:
@@ -590,7 +612,6 @@ def test_try_except(star):
             return 2*y
     """
 
-
     source = inspect.cleandoc(source)
 
     t = br.preinstrument(source)
@@ -601,6 +622,7 @@ def test_try_except(star):
 
 def test_try_finally():
     import inspect
+
     source = """
         def foo(x):
             try:

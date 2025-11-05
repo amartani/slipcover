@@ -265,7 +265,7 @@ def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
             # Convert bytes to string if necessary
             source = args[1]
             if isinstance(source, bytes):
-                source = source.decode('utf-8')
+                source = source.decode("utf-8")
             args = (br.preinstrument(source), *args[1:])
             return orig_rewrite_asserts(*args)
 

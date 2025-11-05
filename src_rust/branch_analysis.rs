@@ -122,11 +122,10 @@ fn compute_next_nodes_recursive(
         if let Some(body) = node.child_by_field_name("body") {
             // Process each case_clause in the body with parent_next
             for i in 0..body.child_count() {
-                if let Some(case) = body.child(i) {
-                    if case.kind() == "case_clause" {
+                if let Some(case) = body.child(i)
+                    && case.kind() == "case_clause" {
                         compute_next_nodes_recursive(&case, source, parent_next, next_nodes);
                     }
-                }
             }
         }
 
@@ -527,11 +526,10 @@ fn find_first_statement_line(node: &Node) -> Option<usize> {
     if matches!(kind, "else_clause" | "elif_clause" | "finally_clause") {
         // These nodes have a body - recurse into it
         for i in 0..node.child_count() {
-            if let Some(child) = node.child(i) {
-                if let Some(line) = find_first_statement_line(&child) {
+            if let Some(child) = node.child(i)
+                && let Some(line) = find_first_statement_line(&child) {
                     return Some(line);
                 }
-            }
         }
         return None;
     }
@@ -605,8 +603,8 @@ fn contains_wildcard(node: &Node) -> bool {
 
     // For case_pattern nodes with a single name child, treat as wildcard
     // A bare identifier like `case y:` is a capture pattern (matches anything)
-    if node.kind() == "case_pattern" && node.named_child_count() == 1 {
-        if let Some(child) = node.named_child(0) {
+    if node.kind() == "case_pattern" && node.named_child_count() == 1
+        && let Some(child) = node.named_child(0) {
             let child_kind = child.kind();
             eprintln!("      single child kind={}", child_kind);
             if child_kind == "identifier" || child_kind == "dotted_name" {
@@ -614,15 +612,13 @@ fn contains_wildcard(node: &Node) -> bool {
                 return true;
             }
         }
-    }
 
     // Recursively check all children
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
-            if contains_wildcard(&child) {
+        if let Some(child) = node.child(i)
+            && contains_wildcard(&child) {
                 return true;
             }
-        }
     }
 
     false
