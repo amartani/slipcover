@@ -368,10 +368,37 @@ fn handle_match_statement(
                     }
 
                     // Check if this is a wildcard case
-                    if let Some(pattern) = case.child_by_field_name("pattern")
-                        && is_wildcard_pattern(&pattern) && !has_guard(&case) {
-                            has_wildcard = true;
+                    // The pattern is a child with kind containing "pattern" (not a named field)
+                    for j in 0..case.child_count() {
+                        if let Some(child) = case.child(j) {
+                            let kind = child.kind();
+                            if kind == "case_pattern" {
+                                // Check the source text of the case_pattern
+                                let text = &source[child.byte_range()];
+
+                                // Check if it's a wildcard pattern
+                                // Either: text is "_", or it has a named child that's wildcard
+                                let mut is_wildcard_case = text.trim() == "_";
+
+                                if !is_wildcard_case {
+                                    // Check named children for wildcard patterns
+                                    for k in 0..child.named_child_count() {
+                                        if let Some(inner) = child.named_child(k) {
+                                            if is_wildcard_pattern(&inner) {
+                                                is_wildcard_case = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if is_wildcard_case && !has_guard(&case) {
+                                    has_wildcard = true;
+                                }
+                                break;
+                            }
                         }
+                    }
                 }
         }
     }
@@ -409,6 +436,14 @@ fn find_first_statement_line(node: &Node) -> Option<usize> {
                     return Some(line);
                 }
             }
+        }
+        return None;
+    }
+
+    // Special handling for case_clause - look for the "consequence" field
+    if kind == "case_clause" {
+        if let Some(consequence) = node.child_by_field_name("consequence") {
+            return find_first_statement_line(&consequence);
         }
         return None;
     }
