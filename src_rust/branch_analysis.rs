@@ -1,5 +1,5 @@
 use tree_sitter::{Parser, Node};
-use std::collections::HashMap;
+use ahash::AHashMap;
 use tree_sitter_python::LANGUAGE;
 
 /// Information about a branch point
@@ -35,8 +35,8 @@ pub fn analyze_branches(source: &str) -> Result<Vec<BranchInfo>, String> {
 }
 
 /// Computes the "next node" line number for each node (what executes after this node completes)
-fn compute_next_nodes(root: &Node, source: &str) -> HashMap<usize, usize> {
-    let mut next_nodes = HashMap::new();
+fn compute_next_nodes(root: &Node, source: &str) -> AHashMap<usize, usize> {
+    let mut next_nodes = AHashMap::new();
     compute_next_nodes_recursive(root, source, 0, &mut next_nodes);
     next_nodes
 }
@@ -46,7 +46,7 @@ fn compute_next_nodes_recursive(
     node: &Node,
     source: &str,
     parent_next: usize,
-    next_nodes: &mut HashMap<usize, usize>
+    next_nodes: &mut AHashMap<usize, usize>
 ) {
     let node_id = node.id();
     let kind = node.kind();
@@ -236,7 +236,7 @@ fn compute_next_nodes_recursive(
 fn find_branches_recursive(
     node: &Node,
     source: &str,
-    next_nodes: &HashMap<usize, usize>,
+    next_nodes: &AHashMap<usize, usize>,
     branches: &mut Vec<BranchInfo>
 ) -> Result<(), String> {
     let kind = node.kind();
@@ -266,7 +266,7 @@ fn find_branches_recursive(
 fn handle_elif_as_if(
     node: &Node,
     source: &str,
-    next_nodes: &HashMap<usize, usize>,
+    next_nodes: &AHashMap<usize, usize>,
     branches: &mut Vec<BranchInfo>
 ) -> Result<(), String> {
     // elif_clause has similar structure to if_statement
@@ -347,7 +347,7 @@ fn handle_elif_as_if(
 fn handle_if_statement(
     node: &Node,
     source: &str,
-    next_nodes: &HashMap<usize, usize>,
+    next_nodes: &AHashMap<usize, usize>,
     branches: &mut Vec<BranchInfo>
 ) -> Result<(), String> {
     let branch_line = node.start_position().row + 1; // 1-indexed
@@ -414,7 +414,7 @@ fn handle_if_statement(
 fn handle_loop_statement(
     node: &Node,
     source: &str,
-    next_nodes: &HashMap<usize, usize>,
+    next_nodes: &AHashMap<usize, usize>,
     branches: &mut Vec<BranchInfo>
 ) -> Result<(), String> {
     let branch_line = node.start_position().row + 1; // 1-indexed
@@ -458,7 +458,7 @@ fn handle_loop_statement(
 fn handle_match_statement(
     node: &Node,
     source: &str,
-    next_nodes: &HashMap<usize, usize>,
+    next_nodes: &AHashMap<usize, usize>,
     branches: &mut Vec<BranchInfo>
 ) -> Result<(), String> {
     let branch_line = node.start_position().row + 1; // 1-indexed
