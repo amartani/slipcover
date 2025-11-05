@@ -68,7 +68,7 @@ fn compute_next_nodes_recursive(
     next_nodes.insert(node_id, parent_next);
 
     // Special handling for loops: the loop body should loop back to the loop header
-    if kind == "for_statement" || kind == "while_statement" {
+    if kind == "for_statement" || kind == "while_statement" || kind == "async_for_statement" {
         let loop_line = node.start_position().row + 1; // 1-indexed
 
         // Process the loop body with the loop line as the "next"
@@ -139,7 +139,7 @@ fn find_branches_recursive(
             // Find the condition and body
             handle_elif_as_if(node, source, next_nodes, branches)?;
         }
-        "for_statement" | "while_statement" => handle_loop_statement(node, source, next_nodes, branches)?,
+        "for_statement" | "while_statement" | "async_for_statement" => handle_loop_statement(node, source, next_nodes, branches)?,
         "match_statement" => handle_match_statement(node, source, next_nodes, branches)?,
         _ => {
             // Recurse into children
