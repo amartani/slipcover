@@ -67,6 +67,25 @@ fn compute_next_nodes_recursive(
     // Default: this node's next is the parent's next
     next_nodes.insert(node_id, parent_next);
 
+    // Special handling for loops: the loop body should loop back to the loop header
+    if kind == "for_statement" || kind == "while_statement" {
+        let loop_line = node.start_position().row + 1; // 1-indexed
+
+        // Process the loop body with the loop line as the "next"
+        if let Some(body) = node.child_by_field_name("body") {
+            compute_next_nodes_recursive(&body, source, loop_line, next_nodes);
+        }
+
+        // Process other children (condition, alternative) with parent's next
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i)
+                && node.field_name_for_child(i as u32) != Some("body") {
+                compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
+            }
+        }
+        return;
+    }
+
     // Handle block structures (lists of statements)
     if kind == "block" || kind == "module" {
         let mut stmts: Vec<Node> = Vec::new();
