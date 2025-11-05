@@ -335,6 +335,8 @@ def test_meta_in_results(do_branch):
     """
     if do_branch:
         source = br.preinstrument(source)
+    else:
+        source = inspect.cleandoc(source)
 
     sci = sc.Covers(branch=do_branch)
     code = compile(source, "foo", "exec")

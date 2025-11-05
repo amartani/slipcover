@@ -16,15 +16,17 @@ def preinstrument(source: Union[str, ast.Module]) -> ast.Module:
     Returns:
         Modified AST with branch markers inserted
     """
+    import textwrap
+
     # Handle both string and AST Module inputs
     if isinstance(source, ast.Module):
         # Unparse the AST to get source code for tree-sitter analysis
         source_str = ast.unparse(source)
         tree = source
     else:
-        # Parse the source string to get an AST
-        source_str = source
-        tree = ast.parse(source)
+        # Remove common leading whitespace from source string
+        source_str = textwrap.dedent(source)
+        tree = ast.parse(source_str)
 
     # Analyze source with tree-sitter (implemented in Rust)
     # Returns dict mapping branch_line -> [(insert_line, to_line), ...]

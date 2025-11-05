@@ -68,8 +68,38 @@ fn compute_next_nodes_recursive(
     next_nodes.insert(node_id, parent_next);
 
     // Special handling for loops: the loop body should loop back to the loop header
-    if kind == "for_statement" || kind == "while_statement" || kind == "async_for_statement" {
-        let loop_line = node.start_position().row + 1; // 1-indexed
+    // Note: async for does NOT loop back (matching Python's old implementation)
+    if kind == "for_statement" {
+        // Check if this is async for by looking for an 'async' child
+        let is_async = (0..node.child_count())
+            .any(|i| node.child(i).map(|c| c.kind()) == Some("async"));
+
+        if is_async {
+            // Async for: body does NOT loop back
+            if let Some(body) = node.child_by_field_name("body") {
+                compute_next_nodes_recursive(&body, source, parent_next, next_nodes);
+            }
+        } else {
+            // Regular for: body loops back
+            let loop_line = node.start_position().row + 1;
+            if let Some(body) = node.child_by_field_name("body") {
+                compute_next_nodes_recursive(&body, source, loop_line, next_nodes);
+            }
+        }
+
+        // Process other children (condition, alternative) with parent's next
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i)
+                && node.field_name_for_child(i as u32) != Some("body") {
+                compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
+            }
+        }
+        return;
+    }
+
+    // Special handling for while loops: body loops back
+    if kind == "while_statement" {
+        let loop_line = node.start_position().row + 1;
 
         // Process the loop body with the loop line as the "next"
         if let Some(body) = node.child_by_field_name("body") {
@@ -448,31 +478,15 @@ fn handle_match_statement(
                     }
 
                     // Check if this is a wildcard case
-                    // The pattern is a child with kind containing "pattern" (not a named field)
                     for j in 0..case.child_count() {
                         if let Some(child) = case.child(j) {
                             let kind = child.kind();
                             if kind == "case_pattern" {
-                                // Check the source text of the case_pattern
-                                let text = &source[child.byte_range()];
-
-                                // Check if it's a wildcard pattern
-                                // Either: text is "_", or it has a named child that's wildcard
-                                let mut is_wildcard_case = text.trim() == "_";
-
-                                if !is_wildcard_case {
-                                    // Check named children for wildcard patterns
-                                    for k in 0..child.named_child_count() {
-                                        if let Some(inner) = child.named_child(k) {
-                                            if is_wildcard_pattern(&inner) {
-                                                is_wildcard_case = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if is_wildcard_case && !has_guard(&case) {
+                                // Check if the pattern contains a wildcard (recursively)
+                                eprintln!("DEBUG: checking case_pattern for wildcard");
+                                let has_wild = contains_wildcard(&child);
+                                eprintln!("  contains_wildcard returned: {}", has_wild);
+                                if has_wild && !has_guard(&case) {
                                     has_wildcard = true;
                                 }
                                 break;
@@ -484,8 +498,10 @@ fn handle_match_statement(
     }
 
     // If no wildcard, add a fallthrough branch
+    eprintln!("DEBUG: match at line {} has_wildcard={}", branch_line, has_wildcard);
     if !has_wildcard {
         let next_line = next_nodes.get(&node.id()).copied().unwrap_or(0);
+        eprintln!("  adding fallthrough case to line {}", next_line);
         markers.push((0, next_line)); // Will need to add a wildcard case
     }
 
@@ -563,17 +579,52 @@ fn is_statement(node: &Node) -> bool {
 
 fn is_wildcard_pattern(node: &Node) -> bool {
     // A wildcard pattern is "_" or a bare identifier used as a capture
-    if node.kind() == "wildcard_pattern" {
+    let kind = node.kind();
+    if kind == "wildcard_pattern" || kind == "_" {
         return true;
     }
-    if node.kind() == "as_pattern" {
+    if kind == "as_pattern" {
         // Check if it's an as_pattern without a specific pattern (just a name)
         if let Some(pattern) = node.child_by_field_name("pattern") {
-            return pattern.kind() == "wildcard_pattern";
+            let pattern_kind = pattern.kind();
+            return pattern_kind == "wildcard_pattern" || pattern_kind == "_";
         }
         // If no pattern field, it might be a bare name, which is a wildcard
         return true;
     }
+    false
+}
+
+fn contains_wildcard(node: &Node) -> bool {
+    eprintln!("    contains_wildcard: kind={}, named_children={}", node.kind(), node.named_child_count());
+    // Check if this node or any descendant is a wildcard pattern
+    if is_wildcard_pattern(node) {
+        eprintln!("      is_wildcard!");
+        return true;
+    }
+
+    // For case_pattern nodes with a single name child, treat as wildcard
+    // A bare identifier like `case y:` is a capture pattern (matches anything)
+    if node.kind() == "case_pattern" && node.named_child_count() == 1 {
+        if let Some(child) = node.named_child(0) {
+            let child_kind = child.kind();
+            eprintln!("      single child kind={}", child_kind);
+            if child_kind == "identifier" || child_kind == "dotted_name" {
+                eprintln!("      is capture!");
+                return true;
+            }
+        }
+    }
+
+    // Recursively check all children
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            if contains_wildcard(&child) {
+                return true;
+            }
+        }
+    }
+
     false
 }
 
