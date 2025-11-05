@@ -34,15 +34,14 @@ class CoversLoader(Loader):
         return self.orig_loader.get_code(name)  # type: ignore[attr-defined]
 
     def exec_module(self, module):
-        import ast
-
         # branch coverage requires pre-instrumentation from source
         if (
             self.sci.branch
             and isinstance(self.orig_loader, machinery.SourceFileLoader)
             and self.origin.exists()
         ):
-            t = br.preinstrument(ast.parse(self.origin.read_bytes()))
+            source = self.origin.read_bytes().decode("utf-8")
+            t = br.preinstrument(source)
             code = compile(t, str(self.origin), "exec")
         else:
             code = self.orig_loader.get_code(module.__name__)  # type: ignore[attr-defined]
@@ -261,7 +260,13 @@ def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
             # but the filename isn't clearly available. So here we instead always pre-instrument
             # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
             # *should* be innocuous if not followed by sci.instrument.
-            args = (br.preinstrument(args[0]), *args[1:])
+            # args[0] is mod (AST), args[1] is source
+            # preinstrument now takes source and returns modified AST
+            # Convert bytes to string if necessary
+            source = args[1]
+            if isinstance(source, bytes):
+                source = source.decode("utf-8")
+            args = (br.preinstrument(source), *args[1:])
             return orig_rewrite_asserts(*args)
 
         def adjust_name(fn: Path) -> Path:

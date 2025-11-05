@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PySet, PyTuple, PyCFunction, PyModule as PyModuleType};
+use pyo3::types::{PyDict, PyList, PySet, PyTuple, PyCFunction};
 use pyo3::exceptions::PyAssertionError;
 use pyo3::Py;
 use std::collections::{HashMap, HashSet};
@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use ahash::AHashSet;
 use tabled::{Table, Tabled, settings::Style};
 use chrono::prelude::*;
+mod branch_analysis;
+use branch_analysis::analyze_branches;
 
 // Branch encoding constants
 const BRANCH_MARKER: i32 = 1 << 30;
@@ -1105,8 +1107,6 @@ impl Covers {
     }
 
     fn _add_unseen_source_files_internal(&self, py: Python, source: Vec<String>) -> PyResult<()> {
-        let ast_module = PyModule::import(py, "ast")?;
-
         let mut dirs: Vec<PathBuf> = Vec::new();
         for d in source {
             let p = PathBuf::from(d);
@@ -1145,7 +1145,7 @@ impl Covers {
                     // Check if file has been instrumented
                     if !tracker.has_file(filename.clone()) {
                         // Try to parse and compile
-                        match self._try_add_file_from_path(py, &path, &filename, &ast_module, &tracker) {
+                        match self._try_add_file_from_path(py, &path, &filename, &tracker) {
                             Ok(_) => {},
                             Err(e) => {
                                 println!("Warning: unable to include {}: {}", filename, e);
@@ -1164,24 +1164,15 @@ impl Covers {
         py: Python,
         path: &Path,
         filename: &str,
-        ast_module: &Bound<PyModuleType>,
         tracker: &CoverageTracker,
     ) -> PyResult<()> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read file {}: {}", filename, e)))?;
-        let mut tree = ast_module.call_method1("parse", (content,))?;
 
-        // If branch coverage, preinstrument
-        if self.branch {
-            let branch_module = PyModule::import(py, "covers.branch")?;
-            let preinstrument = branch_module.getattr("preinstrument")?;
-            tree = preinstrument.call1((tree,))?;
-        }
-
-        // Compile
-        let builtins = PyModule::import(py, "builtins")?;
-        let compile_fn = builtins.getattr("compile")?;
-        let code = compile_fn.call1((tree, filename, "exec"))?;
+        // Call Python's preinstrument_and_compile from covers.branch module
+        let branch_module = PyModule::import(py, "covers.branch")?;
+        let preinstrument_and_compile = branch_module.getattr("preinstrument_and_compile")?;
+        let code = preinstrument_and_compile.call1((content, filename, self.branch))?;
 
         // Extract lines and branches
         let lines = lines_from_code(py, &code)?;
@@ -1283,6 +1274,29 @@ impl Covers {
     }
 }
 
+/// Analyze Python source code to find branch points using tree-sitter
+#[pyfunction]
+fn analyze_branches_ts(py: Python, source: String) -> PyResult<Py<PyDict>> {
+    let branch_info_list = analyze_branches(&source)
+        .map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
+
+    let result = PyDict::new(py);
+
+    for info in branch_info_list {
+        let branch_line_key = info.branch_line;
+        let markers_list = PyList::empty(py);
+
+        for (insert_line, to_line) in info.markers {
+            let marker_tuple = PyTuple::new(py, [insert_line, to_line])?;
+            markers_list.append(marker_tuple)?;
+        }
+
+        result.set_item(branch_line_key, markers_list)?;
+    }
+
+    Ok(result.into())
+}
+
 /// Module definition
 #[pymodule]
 fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
@@ -1293,6 +1307,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(branches_from_code, m)?)?;
     m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
     m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
+    m.add_function(wrap_pyfunction!(analyze_branches_ts, m)?)?;
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Covers>()?;
