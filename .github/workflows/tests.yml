@@ -34,25 +34,15 @@ jobs:
         python-version: ${{ matrix.python }}
         allow-prereleases: true
 
-    - name: Install Maturin
-      run: python3 -m pip install maturin
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
 
-    - name: Install test dependencies
+    - name: Run tests with tox
+      shell: bash
       run: |
-        python3 -m pip install -U pip
-        python3 -m pip install pytest
-
-    - name: Install Unix dependencies
-      if: matrix.os != 'windows-latest'
-      run: python3 -m pip install pytest-forked
-
-    - name: Build and install Covers
-      run: |
-        maturin build --release --out dist
-        python3 -m pip install --find-links=dist covers
-
-    - name: Run tests
-      run: python3 -m pytest
+        # Convert Python version (e.g., 3.12) to tox env (e.g., py312)
+        TOX_ENV="py$(echo ${{ matrix.python }} | tr -d '.')"
+        uv tool run --with tox-uv tox -e $TOX_ENV
 
   # Test building from source distribution
   test-build-from-source:
