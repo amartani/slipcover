@@ -7,27 +7,34 @@ from .covers_core import encode_branch, analyze_branches_ts
 EXIT = 0
 
 
-def preinstrument(source: str) -> ast.Module:
+def preinstrument(source: Union[str, ast.Module]) -> ast.Module:
     """Prepares an AST for coverage instrumentation using tree-sitter analysis.
 
     Args:
-        source: The Python source code to analyze
+        source: The Python source code to analyze (string or AST Module)
 
     Returns:
         Modified AST with branch markers inserted
     """
-    # Parse the source to get an AST
-    tree = ast.parse(source)
+    # Handle both string and AST Module inputs
+    if isinstance(source, ast.Module):
+        # Unparse the AST to get source code for tree-sitter analysis
+        source_str = ast.unparse(source)
+        tree = source
+    else:
+        # Parse the source string to get an AST
+        source_str = source
+        tree = ast.parse(source)
 
     # Analyze source with tree-sitter (implemented in Rust)
     # Returns dict mapping branch_line -> [(insert_line, to_line), ...]
     # Note: This doesn't import ast in Rust, it's tree-sitter based!
-    branch_data = analyze_branches_ts(source)
+    branch_data = analyze_branches_ts(source_str)
 
     class SlipcoverTransformer(ast.NodeTransformer):
         def __init__(self, branch_info):
             self.branch_info = branch_info
-            self.source_lines = source.splitlines()
+            self.source_lines = source_str.splitlines()
 
         def _mark_branch(self, from_line: int, to_line: int) -> List[ast.stmt]:
             # Using a constant Expr allows the compiler to optimize this to a NOP
