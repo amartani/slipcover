@@ -154,16 +154,49 @@ fn handle_elif_as_if(
         }
     }
 
-    // Find the alternative (else/elif)
-    if let Some(alternative) = node.child_by_field_name("alternative") {
-        let alt_first_line = find_first_statement_line(&alternative);
-        if let Some(first_line) = alt_first_line {
-            markers.push((first_line, first_line));
+    // elif clauses in tree-sitter-python are children of if_statement, not nested
+    // The else clause (if any) is a sibling of the elif, not a child
+    // We need to look at the parent to find sibling alternatives
+    if let Some(parent) = node.parent() {
+        let mut found_else = false;
+        let elif_index = (0..parent.child_count())
+            .find(|&i| parent.child(i).map(|c| c.id()) == Some(node.id()));
+
+        if let Some(start_idx) = elif_index {
+            // Look for siblings after this elif
+            for i in (start_idx + 1)..parent.child_count() {
+                if let Some(sibling) = parent.child(i)
+                    && parent.field_name_for_child(i as u32) == Some("alternative") {
+                    let sibling_kind = sibling.kind();
+
+                    if sibling_kind == "else_clause" {
+                        // Found an else clause - add marker to first statement
+                        let else_first_line = find_first_statement_line(&sibling);
+                        if let Some(first_line) = else_first_line {
+                            markers.push((first_line, first_line));
+                            found_else = true;
+                        }
+                        break;
+                    } else if sibling_kind == "elif_clause" {
+                        // Found another elif - add marker pointing to it
+                        let next_elif_line = sibling.start_position().row + 1;
+                        markers.push((next_elif_line, next_elif_line));
+                        found_else = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !found_else {
+            // No else clause - branch to next statement after entire if/elif chain
+            let next_line = next_nodes.get(&parent.id()).copied().unwrap_or(0);
+            markers.push((0, next_line)); // 0 means "append to orelse"
         }
     } else {
-        // No else clause - branch to next statement after elif
+        // No parent (shouldn't happen) - use next after elif
         let next_line = next_nodes.get(&node.id()).copied().unwrap_or(0);
-        markers.push((0, next_line)); // 0 means "append to orelse"
+        markers.push((0, next_line));
     }
 
     branches.push(BranchInfo {
@@ -200,23 +233,33 @@ fn handle_if_statement(
         }
     }
 
-    // Find the alternative (else/elif)
-    if let Some(alternative) = node.child_by_field_name("alternative") {
-        let alt_kind = alternative.kind();
+    // Find the FIRST alternative (else/elif)
+    // Note: tree-sitter can have multiple alternatives (elif and else), but
+    // the if should only branch to the first one. The elif will handle the rest.
+    let mut found_alternative = false;
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i)
+            && node.field_name_for_child(i as u32) == Some("alternative") {
+            found_alternative = true;
+            let alt_kind = child.kind();
 
-        if alt_kind == "elif_clause" {
-            // elif - add marker pointing to the elif line
-            // The elif will create its own branches when processed recursively
-            let elif_line = alternative.start_position().row + 1;
-            markers.push((elif_line, elif_line));
-        } else {
-            // Regular else clause - add marker to first statement
-            let alt_first_line = find_first_statement_line(&alternative);
-            if let Some(first_line) = alt_first_line {
-                markers.push((first_line, first_line));
+            if alt_kind == "elif_clause" {
+                // elif - add marker pointing to the elif line
+                // The elif will create its own branches when processed recursively
+                let elif_line = child.start_position().row + 1;
+                markers.push((elif_line, elif_line));
+            } else {
+                // Regular else clause - add marker to first statement
+                let alt_first_line = find_first_statement_line(&child);
+                if let Some(first_line) = alt_first_line {
+                    markers.push((first_line, first_line));
+                }
             }
+            break; // Only process the FIRST alternative
         }
-    } else {
+    }
+
+    if !found_alternative {
         // No else clause - branch to next statement after if
         let next_line = next_nodes.get(&node.id()).copied().unwrap_or(0);
         markers.push((0, next_line)); // 0 means "append to orelse"

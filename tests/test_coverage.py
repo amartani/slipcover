@@ -332,12 +332,12 @@ def test_meta_in_results(do_branch):
                 return 0
 
         foo(2)
-    """)
+    """
     if do_branch:
-        t = br.preinstrument(t)
+        source = br.preinstrument(source)
 
     sci = sc.Covers(branch=do_branch)
-    code = compile(t, "foo", "exec")
+    code = compile(source, "foo", "exec")
     code = sci.instrument(code)
 
     g = dict()
@@ -445,7 +445,9 @@ def test_print_coverage(capsys):
 
 
 def test_print_coverage_branch(capsys):
-    t = ast_parse("""
+    import inspect
+
+    source = """
         def foo(x):
             if x >= 0:
                 if x > 1:

@@ -262,7 +262,11 @@ def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
             # *should* be innocuous if not followed by sci.instrument.
             # args[0] is mod (AST), args[1] is source
             # preinstrument now takes source and returns modified AST
-            args = (br.preinstrument(args[1]), *args[1:])
+            # Convert bytes to string if necessary
+            source = args[1]
+            if isinstance(source, bytes):
+                source = source.decode('utf-8')
+            args = (br.preinstrument(source), *args[1:])
             return orig_rewrite_asserts(*args)
 
         def adjust_name(fn: Path) -> Path:

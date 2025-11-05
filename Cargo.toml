@@ -2,7 +2,7 @@
 name = "covers"
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.91.0"
+rust-version = "1.90.0"
 
 [lib]
 name = "covers_core"
