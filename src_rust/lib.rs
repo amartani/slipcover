@@ -2,7 +2,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PySet, PyTuple, PyCFunction};
 use pyo3::exceptions::PyAssertionError;
 use pyo3::Py;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use ahash::AHashMap;
 use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use ahash::AHashSet;
@@ -62,14 +63,14 @@ struct CoverageTracker {
 
 struct CoverageTrackerInner {
     // Notes which code lines have been instrumented
-    code_lines: HashMap<String, AHashSet<i32>>,
-    code_branches: HashMap<String, AHashSet<(i32, i32)>>,
+    code_lines: AHashMap<String, AHashSet<i32>>,
+    code_branches: AHashMap<String, AHashSet<(i32, i32)>>,
 
     // Notes which lines and branches have been seen
-    all_seen: HashMap<String, AHashSet<LineOrBranch>>,
+    all_seen: AHashMap<String, AHashSet<LineOrBranch>>,
 
     // Notes lines/branches seen since last get_newly_seen
-    newly_seen: HashMap<String, AHashSet<LineOrBranch>>,
+    newly_seen: AHashMap<String, AHashSet<LineOrBranch>>,
 }
 
 #[pymethods]
@@ -78,10 +79,10 @@ impl CoverageTracker {
     fn new() -> Self {
         CoverageTracker {
             inner: Arc::new(Mutex::new(CoverageTrackerInner {
-                code_lines: HashMap::new(),
-                code_branches: HashMap::new(),
-                all_seen: HashMap::new(),
-                newly_seen: HashMap::new(),
+                code_lines: AHashMap::new(),
+                code_branches: AHashMap::new(),
+                all_seen: AHashMap::new(),
+                newly_seen: AHashMap::new(),
             })),
         }
     }
@@ -108,18 +109,17 @@ impl CoverageTracker {
         // Create a new empty HashMap for newly_seen and swap it with the current one
         let old_newly_seen = std::mem::take(&mut inner.newly_seen);
 
-        // Convert to Python dict
+        // Convert to Python dict - consume the data instead of iterating over references
         let result = PyDict::new(py);
-        for (filename, items) in old_newly_seen.iter() {
+        for (filename, items) in old_newly_seen.into_iter() {
             let py_set = PySet::empty(py)?;
             for item in items {
                 match item {
                     LineOrBranch::Line(line) => {
-                        py_set.add(*line)?;
+                        py_set.add(line)?;
                     }
                     LineOrBranch::Branch(from_line, to_line) => {
-                        let tuple = PyTuple::new(py, [*from_line, *to_line])?;
-                        py_set.add(tuple)?;
+                        py_set.add(PyTuple::new(py, [from_line, to_line])?)?;
                     }
                 }
             }
@@ -168,11 +168,13 @@ impl CoverageTracker {
     fn get_coverage_data(&self, py: Python, with_branches: bool) -> PyResult<Py<PyAny>> {
         let inner = self.inner.lock().unwrap();
 
-        let files_dict = PyDict::new(py);
+        // Type alias for file coverage data: (executed_lines, missing_lines, executed_branches, missing_branches)
+        type FileCoverageData = (Vec<i32>, Vec<i32>, Vec<(i32, i32)>, Vec<(i32, i32)>);
+
+        // Collect data in native Rust structures first
+        let mut files_data: AHashMap<&String, FileCoverageData> = AHashMap::new();
 
         for (filename, code_lines) in inner.code_lines.iter() {
-            let file_dict = PyDict::new(py);
-
             // Get the seen lines and branches for this file
             let (lines_seen, branches_seen) = if let Some(all_seen) = inner.all_seen.get(filename) {
                 let mut lines = AHashSet::new();
@@ -205,11 +207,8 @@ impl CoverageTracker {
                 .collect();
             missing_lines.sort_unstable();
 
-            file_dict.set_item("executed_lines", PyList::new(py, executed_lines)?)?;
-            file_dict.set_item("missing_lines", PyList::new(py, missing_lines)?)?;
-
-            // Handle branch coverage if requested
-            if with_branches {
+            // Calculate executed and missing branches if requested
+            let (executed_branches, missing_branches) = if with_branches {
                 let code_branches = inner.code_branches.get(filename);
 
                 let mut executed_branches: Vec<(i32, i32)> = branches_seen.iter().copied().collect();
@@ -225,7 +224,25 @@ impl CoverageTracker {
                 };
                 missing_branches.sort_unstable();
 
-                // Convert to list of tuples for Python
+                (executed_branches, missing_branches)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
+            files_data.insert(filename, (executed_lines, missing_lines, executed_branches, missing_branches));
+        }
+
+        // Now convert to Python structures in one pass
+        let files_dict = PyDict::new(py);
+
+        for (filename, (executed_lines, missing_lines, executed_branches, missing_branches)) in files_data {
+            let file_dict = PyDict::new(py);
+
+            file_dict.set_item("executed_lines", PyList::new(py, &executed_lines)?)?;
+            file_dict.set_item("missing_lines", PyList::new(py, &missing_lines)?)?;
+
+            if with_branches {
+                // Convert branch tuples to Python
                 let exec_br_list = PyList::empty(py);
                 for (from_line, to_line) in executed_branches {
                     exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
@@ -734,7 +751,7 @@ fn print_coverage(
 /// Adds (or updates) 'summary' entries in coverage information
 #[pyfunction]
 fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
-    let mut g_summary_data: HashMap<String, i32> = HashMap::new();
+    let mut g_summary_data: AHashMap<String, i32> = AHashMap::new();
     let mut g_nom = 0;
     let mut g_den = 0;
 
@@ -1280,18 +1297,22 @@ fn analyze_branches_ts(py: Python, source: String) -> PyResult<Py<PyDict>> {
     let branch_info_list = analyze_branches(&source)
         .map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
 
-    let result = PyDict::new(py);
+    // Build a native Rust structure first
+    let mut branches_map: AHashMap<usize, Vec<(usize, usize)>> = AHashMap::new();
 
     for info in branch_info_list {
-        let branch_line_key = info.branch_line;
+        branches_map.insert(info.branch_line, info.markers);
+    }
+
+    // Now convert to Python structures in one pass
+    let result = PyDict::new(py);
+
+    for (branch_line, markers) in branches_map {
         let markers_list = PyList::empty(py);
-
-        for (insert_line, to_line) in info.markers {
-            let marker_tuple = PyTuple::new(py, [insert_line, to_line])?;
-            markers_list.append(marker_tuple)?;
+        for (insert_line, to_line) in markers {
+            markers_list.append(PyTuple::new(py, [insert_line, to_line])?)?;
         }
-
-        result.set_item(branch_line_key, markers_list)?;
+        result.set_item(branch_line, markers_list)?;
     }
 
     Ok(result.into())
