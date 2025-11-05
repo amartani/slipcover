@@ -86,6 +86,41 @@ fn compute_next_nodes_recursive(
         return;
     }
 
+    // Special handling for try_statement: try body should go to finally (if exists) or except handlers
+    if kind == "try_statement" {
+        // Find finally clause first
+        let mut finally_line = None;
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i)
+                && child.kind() == "finally_clause" {
+                    // Get the first statement line in the finally clause
+                    finally_line = find_first_statement_line(&child);
+                    break;
+                }
+        }
+
+        // If no finally, next is parent's next
+        let try_next = finally_line.unwrap_or(parent_next);
+
+        // Process try body with finally or parent's next
+        if let Some(body) = node.child_by_field_name("body") {
+            compute_next_nodes_recursive(&body, source, try_next, next_nodes);
+        }
+
+        // Process except handlers with parent's next (after try/except)
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                let child_kind = child.kind();
+                if child_kind == "except_clause" {
+                    compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
+                } else if child_kind == "else_clause" || child_kind == "finally_clause" {
+                    compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
+                }
+            }
+        }
+        return;
+    }
+
     // Handle block structures (lists of statements)
     if kind == "block" || kind == "module" {
         let mut stmts: Vec<Node> = Vec::new();
