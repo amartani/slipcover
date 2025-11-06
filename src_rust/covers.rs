@@ -1,0 +1,561 @@
+// Main Covers class
+// Based on the original Python covers.py module
+
+use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict, PyList, PyModule, PySet, PyTuple, PyCFunction};
+use std::sync::{Arc, Mutex};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use ahash::AHashSet;
+use chrono::prelude::*;
+use chrono::SecondsFormat;
+use crate::tracker::CoverageTracker;
+use crate::path::PathSimplifier;
+use crate::code_analysis::{lines_from_code, branches_from_code};
+use crate::reporting::{print_coverage, add_summaries_native};
+use crate::schemas::{FileCoverageData, MetaData};
+use ahash::AHashMap;
+
+/// Version constant
+pub const VERSION: &str = "1.0.17";
+
+/// Main Covers class
+#[pyclass]
+pub struct Covers {
+    immediate: bool,
+    #[allow(dead_code)]
+    d_miss_threshold: i32,
+    branch: bool,
+    #[allow(dead_code)]
+    disassemble: bool,
+    source: Option<Vec<String>>,
+    instrumented_code_ids: Arc<Mutex<HashSet<usize>>>,
+    tracker: Py<CoverageTracker>,
+    modules: Vec<Py<PyAny>>,
+}
+
+#[pymethods]
+impl Covers {
+    #[new]
+    #[pyo3(signature = (immediate=false, d_miss_threshold=50, branch=false, disassemble=false, source=None))]
+    fn new(
+        py: Python,
+        immediate: bool,
+        d_miss_threshold: i32,
+        branch: bool,
+        disassemble: bool,
+        source: Option<Vec<String>>,
+    ) -> PyResult<Py<Self>> {
+        let tracker = Py::new(py, CoverageTracker::new())?;
+        let instrumented_code_ids = Arc::new(Mutex::new(HashSet::new()));
+
+        let slf = Py::new(
+            py,
+            Covers {
+                immediate,
+                d_miss_threshold,
+                branch,
+                disassemble,
+                source,
+                instrumented_code_ids: instrumented_code_ids.clone(),
+                tracker: tracker.clone_ref(py),
+                modules: Vec::new(),
+            },
+        )?;
+
+        // Set up sys.monitoring callback
+        let sys_module = PyModule::import(py, "sys")?;
+        let monitoring = sys_module.getattr("monitoring")?;
+
+        // Check if tool is already registered
+        let coverage_id = monitoring.getattr("COVERAGE_ID")?;
+        let current_tool = monitoring.call_method1("get_tool", (&coverage_id,))?;
+
+        if current_tool.is_none() || current_tool.extract::<String>().ok() != Some("Covers".to_string()) {
+            monitoring.call_method1("use_tool_id", (&coverage_id, "Covers"))?;
+        }
+
+        // Create the handle_line callback
+        let tracker_ref = tracker.clone_ref(py);
+        let ids_ref = instrumented_code_ids.clone();
+
+        let handle_line = PyCFunction::new_closure(
+            py,
+            None,
+            None,
+            move |args: &Bound<PyTuple>, _kwargs: Option<&Bound<PyDict>>| -> PyResult<Py<PyAny>> {
+                Python::attach(|py| {
+                    let code = args.get_item(0)?;
+                    let line: i32 = args.get_item(1)?.extract()?;
+
+                    // Get code object ID using builtins.id()
+                    let code_id = code.as_ptr() as usize;
+
+                    // Check if this code object was instrumented by this instance
+                    {
+                        let ids = ids_ref.lock().unwrap();
+                        if !ids.contains(&code_id) {
+                            // Return DISABLE constant
+                            let sys_module = PyModule::import(py, "sys")?;
+                            let monitoring = sys_module.getattr("monitoring")?;
+                            return Ok(monitoring.getattr("DISABLE")?.into());
+                        }
+                    }
+
+                    // Call tracker.handle_line
+                    let filename: String = code.getattr("co_filename")?.extract()?;
+                    tracker_ref.bind(py).borrow().handle_line(filename, line);
+
+                    // Return DISABLE constant
+                    let sys_module = PyModule::import(py, "sys")?;
+                    let monitoring = sys_module.getattr("monitoring")?;
+                    Ok(monitoring.getattr("DISABLE")?.into())
+                })
+            },
+        )?;
+
+        // Register the callback
+        let events = monitoring.getattr("events")?;
+        let line_event = events.getattr("LINE")?;
+        monitoring.call_method1("register_callback", (&coverage_id, &line_event, handle_line))?;
+
+        Ok(slf)
+    }
+
+    #[pyo3(signature = (co, parent=None))]
+    fn instrument(&mut self, py: Python, co: Py<PyAny>, parent: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
+        let co_bound = co.bind(py);
+
+        // If it's a function, get its __code__
+        let code_obj = if co_bound.hasattr("__code__")? {
+            co_bound.getattr("__code__")?.into()
+        } else {
+            co.clone_ref(py)
+        };
+
+        let code_bound = code_obj.bind(py);
+
+        // Get code object ID and track it
+        let code_id = code_bound.as_ptr() as usize;
+
+        {
+            let mut ids = self.instrumented_code_ids.lock().unwrap();
+            ids.insert(code_id);
+        }
+
+        // Set up monitoring for this code object
+        let sys_module = PyModule::import(py, "sys")?;
+        let monitoring = sys_module.getattr("monitoring")?;
+        let coverage_id = monitoring.getattr("COVERAGE_ID")?;
+        let events = monitoring.getattr("events")?;
+        let line_event = events.getattr("LINE")?;
+
+        monitoring.call_method1("set_local_events", (coverage_id, code_bound, line_event))?;
+        monitoring.call_method0("restart_events")?;
+
+        // Recursively instrument nested code objects
+        let consts = code_bound.getattr("co_consts")?;
+
+        for c in consts.try_iter()? {
+            let item = c?;
+            if item.hasattr("co_code")? {
+                self.instrument(py, item.into(), Some(code_obj.clone_ref(py)))?;
+            }
+        }
+
+        // If this is a top-level code object (no parent), register lines and branches
+        if parent.is_none() {
+            let filename: String = code_bound.getattr("co_filename")?.extract()?;
+
+            let lines = lines_from_code(py, code_bound)?;
+            let branches = branches_from_code(py, code_bound)?;
+
+            let tracker = self.tracker.bind(py).borrow();
+            tracker.add_code_lines(filename.clone(), lines);
+            if !branches.is_empty() {
+                tracker.add_code_branches(filename, branches);
+            }
+        }
+
+        Ok(code_obj)
+    }
+
+    fn get_coverage(&mut self, py: Python) -> PyResult<Py<PyDict>> {
+        // Merge newly seen into all_seen
+        let tracker = self.tracker.bind(py).borrow();
+        tracker.merge_newly_seen();
+
+        // Add unseen source files if source is specified
+        if let Some(ref source_paths) = self.source {
+            self._add_unseen_source_files_internal(py, source_paths.clone())?;
+        }
+
+        // Simplify paths
+        let simp = PathSimplifier::new()?;
+
+        // Get coverage data from tracker using native structures
+        let files_data = tracker.get_coverage_data_native(self.branch);
+
+        // Simplify file paths
+        let mut simplified_files_data: AHashMap<String, FileCoverageData> = AHashMap::new();
+        for (path, file_data) in files_data {
+            let simplified = simp.simplify(path);
+            simplified_files_data.insert(simplified, file_data);
+        }
+
+        // Add summaries using native Rust structures
+        let (file_summaries, global_summary) = add_summaries_native(&mut simplified_files_data, self.branch);
+
+        // Create meta using native structures
+        let meta_data = Self::_make_meta_native(self.branch);
+
+        // Now convert everything to Python at once
+        let cov = PyDict::new(py);
+
+        // Convert meta
+        let meta_dict = PyDict::new(py);
+        meta_dict.set_item("software", meta_data.software)?;
+        meta_dict.set_item("version", meta_data.version)?;
+        meta_dict.set_item("timestamp", meta_data.timestamp)?;
+        meta_dict.set_item("branch_coverage", meta_data.branch_coverage)?;
+        meta_dict.set_item("show_contexts", meta_data.show_contexts)?;
+        cov.set_item("meta", meta_dict)?;
+
+        // Convert files with their summaries
+        let files_dict = PyDict::new(py);
+        for (filename, file_data) in simplified_files_data {
+            let file_dict = PyDict::new(py);
+
+            file_dict.set_item("executed_lines", PyList::new(py, &file_data.executed_lines)?)?;
+            file_dict.set_item("missing_lines", PyList::new(py, &file_data.missing_lines)?)?;
+
+            if self.branch {
+                let exec_br_list = PyList::empty(py);
+                for (from_line, to_line) in file_data.executed_branches {
+                    exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                let miss_br_list = PyList::empty(py);
+                for (from_line, to_line) in file_data.missing_branches {
+                    miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                file_dict.set_item("executed_branches", exec_br_list)?;
+                file_dict.set_item("missing_branches", miss_br_list)?;
+            }
+
+            // Add file summary
+            if let Some(summary) = file_summaries.get(&filename) {
+                let summary_dict = PyDict::new(py);
+                summary_dict.set_item("covered_lines", summary.covered_lines)?;
+                summary_dict.set_item("missing_lines", summary.missing_lines)?;
+                if let Some(cb) = summary.covered_branches {
+                    summary_dict.set_item("covered_branches", cb)?;
+                }
+                if let Some(mb) = summary.missing_branches {
+                    summary_dict.set_item("missing_branches", mb)?;
+                }
+                summary_dict.set_item("percent_covered", summary.percent_covered)?;
+                file_dict.set_item("summary", summary_dict)?;
+            }
+
+            files_dict.set_item(filename, file_dict)?;
+        }
+        cov.set_item("files", files_dict)?;
+
+        // Add global summary
+        let g_summary_dict = PyDict::new(py);
+        g_summary_dict.set_item("covered_lines", global_summary.covered_lines)?;
+        g_summary_dict.set_item("missing_lines", global_summary.missing_lines)?;
+        if let Some(cb) = global_summary.covered_branches {
+            g_summary_dict.set_item("covered_branches", cb)?;
+        }
+        if let Some(mb) = global_summary.missing_branches {
+            g_summary_dict.set_item("missing_branches", mb)?;
+        }
+        g_summary_dict.set_item("percent_covered", global_summary.percent_covered)?;
+        g_summary_dict.set_item("percent_covered_display", format!("{}", global_summary.percent_covered.round() as i32))?;
+        cov.set_item("summary", g_summary_dict)?;
+
+        Ok(cov.into())
+    }
+
+    fn signal_child_process(&mut self, py: Python) -> PyResult<()> {
+        self.source = None;
+        let tracker = self.tracker.bind(py).borrow();
+        tracker.get_newly_seen(py)?;
+        tracker.clear_all_seen();
+        Ok(())
+    }
+
+    #[staticmethod]
+    fn find_functions(py: Python, items: Py<PyAny>, visited: Py<PySet>) -> PyResult<Vec<Py<PyAny>>> {
+        // Import types module
+        let types_module = PyModule::import(py, "types")?;
+        let function_type = types_module.getattr("FunctionType")?;
+        let code_type = types_module.getattr("CodeType")?;
+
+        let visited_set = visited.bind(py);
+        let mut results = Vec::new();
+
+        // Use native Rust HashSet for faster lookups (store Python object pointer addresses)
+        let mut visited_native = AHashSet::new();
+
+        // Populate native set with existing visited items from Python set
+        for item in visited_set.iter() {
+            visited_native.insert(item.as_ptr() as usize);
+        }
+
+        // Convert to list first to handle dict_values and other iterables
+        let builtins = PyModule::import(py, "builtins")?;
+        let list_fn = builtins.getattr("list")?;
+        let items_list: Vec<Py<PyAny>> = list_fn.call1((items,))?.extract()?;
+
+        for item in items_list {
+            Self::find_funcs_recursive(py, item, &mut visited_native, &mut results, &function_type, &code_type)?;
+        }
+
+        // Sync back to Python set for API consistency
+        for item in &results {
+            visited_set.add(item)?;
+        }
+
+        Ok(results)
+    }
+
+    fn register_module(&mut self, module: Py<PyAny>) {
+        self.modules.push(module);
+    }
+
+    #[staticmethod]
+    fn lines_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<i32>> {
+        lines_from_code(py, co.bind(py))
+    }
+
+    #[staticmethod]
+    fn branches_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<(i32, i32)>> {
+        branches_from_code(py, co.bind(py))
+    }
+
+    #[pyo3(signature = (outfile=None, missing_width=None))]
+    fn print_coverage(&mut self, py: Python, outfile: Option<Py<PyAny>>, missing_width: Option<usize>) -> PyResult<()> {
+        // Get coverage first
+        let cov = self.get_coverage(py)?;
+        let cov_bound = cov.bind(py);
+
+        // Call the Rust print_coverage function
+        print_coverage(py, cov_bound, outfile, missing_width, false)?;
+        Ok(())
+    }
+
+    fn __str__(&self, _py: Python) -> PyResult<String> {
+        Ok(format!("Covers(branch={}, immediate={})", self.branch, self.immediate))
+    }
+
+    // Property getters
+    #[getter]
+    fn branch(&self) -> bool {
+        self.branch
+    }
+
+    #[getter]
+    fn immediate(&self) -> bool {
+        self.immediate
+    }
+
+    #[getter]
+    fn d_miss_threshold(&self) -> i32 {
+        self.d_miss_threshold
+    }
+
+    #[getter]
+    fn disassemble(&self) -> bool {
+        self.disassemble
+    }
+}
+
+// Helper methods implementation
+impl Covers {
+    fn _make_meta_native(branch_coverage: bool) -> MetaData {
+        let now = Local::now();
+        let timestamp = now.to_rfc3339_opts(SecondsFormat::Micros, true);
+
+        MetaData {
+            software: "covers".to_string(),
+            version: VERSION.to_string(),
+            timestamp,
+            branch_coverage,
+            show_contexts: false,
+        }
+    }
+
+    fn _add_unseen_source_files_internal(&self, py: Python, source: Vec<String>) -> PyResult<()> {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for d in source {
+            let p = PathBuf::from(d);
+            match dunce::canonicalize(&p) {
+                Ok(resolved) => dirs.push(resolved),
+                Err(e) => return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to resolve path {:?}: {}", p, e))),
+            }
+        }
+
+        let tracker = self.tracker.bind(py).borrow();
+
+        while let Some(p) = dirs.pop() {
+            let entries = match std::fs::read_dir(&p) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    println!("Warning: unable to read directory {:?}: {}", p, e);
+                    continue;
+                }
+            };
+
+            for entry_result in entries {
+                let entry = match entry_result {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        println!("Warning: unable to read directory entry in {:?}: {}", p, e);
+                        continue;
+                    }
+                };
+
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.is_file() && let Some(ext) = path.extension() && ext.to_string_lossy().to_lowercase() == "py" {
+                    let filename = path.to_string_lossy().to_string();
+
+                    // Check if file has been instrumented
+                    if !tracker.has_file(filename.clone()) {
+                        // Try to parse and compile
+                        match self._try_add_file_from_path(py, &path, &filename, &tracker) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                println!("Warning: unable to include {}: {}", filename, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn _try_add_file_from_path(
+        &self,
+        py: Python,
+        path: &Path,
+        filename: &str,
+        tracker: &CoverageTracker,
+    ) -> PyResult<()> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read file {}: {}", filename, e)))?;
+
+        // Call Python's preinstrument_and_compile from covers.branch module
+        let branch_module = PyModule::import(py, "covers.branch")?;
+        let preinstrument_and_compile = branch_module.getattr("preinstrument_and_compile")?;
+        let code = preinstrument_and_compile.call1((content, filename, self.branch))?;
+
+        // Extract lines and branches
+        let lines = lines_from_code(py, &code)?;
+        if !lines.is_empty() {
+            tracker.add_code_lines(filename.to_string(), lines);
+        }
+
+        if self.branch {
+            let branches = branches_from_code(py, &code)?;
+            if !branches.is_empty() {
+                tracker.add_code_branches(filename.to_string(), branches);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn find_funcs_recursive(
+        py: Python,
+        root: Py<PyAny>,
+        visited: &mut AHashSet<usize>,
+        results: &mut Vec<Py<PyAny>>,
+        function_type: &Bound<PyAny>,
+        code_type: &Bound<PyAny>,
+    ) -> PyResult<()> {
+        let root_bound = root.bind(py);
+        let root_ptr = root_bound.as_ptr() as usize;
+        let root_type = root_bound.get_type();
+
+        // Check if it's a patchable function
+        if root_type.is_subclass(function_type)? {
+            let code_obj = root_bound.getattr("__code__")?;
+            let code_obj_type = code_obj.get_type();
+
+            if code_obj_type.is(code_type) {
+                if !visited.contains(&root_ptr) {
+                    visited.insert(root_ptr);
+                    results.push(root.clone_ref(py));
+                }
+                return Ok(());
+            }
+        }
+
+        // Check if it's a type/class
+        let type_type = py.get_type::<pyo3::types::PyType>();
+        if root_type.is_subclass(&type_type)? {
+            if !visited.contains(&root_ptr) {
+                visited.insert(root_ptr);
+
+                // Get dir() of the object
+                let builtins = PyModule::import(py, "builtins")?;
+                let dir_fn = builtins.getattr("dir")?;
+                let dir_result = dir_fn.call1((root_bound,))?;
+                let obj_names: Vec<String> = dir_result.extract()?;
+
+                // Build MRO
+                let mro = root_bound.getattr("__mro__")?;
+                let mro_list: &Bound<PyTuple> = mro.cast()?;
+
+                for obj_key in obj_names {
+                    for base in mro_list.iter() {
+                        let is_root = base.is(root_bound);
+                        let base_ptr = base.as_ptr() as usize;
+                        let base_visited = visited.contains(&base_ptr);
+
+                        if is_root || !base_visited {
+                            let base_dict = base.getattr("__dict__")?;
+                            if base_dict.contains(&obj_key)? {
+                                let item = base_dict.get_item(&obj_key)?;
+                                Self::find_funcs_recursive(py, item.into(), visited, results, function_type, code_type)?;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // Check if it's a classmethod or staticmethod
+        let classmethod_type = py.get_type::<pyo3::types::PyType>().call1(("classmethod",))?;
+        let staticmethod_type = py.get_type::<pyo3::types::PyType>().call1(("staticmethod",))?;
+
+        if (root_type.is_subclass(&classmethod_type)? || root_type.is_subclass(&staticmethod_type)?)
+            && let Ok(func) = root_bound.getattr("__func__") {
+            let func_type = func.get_type();
+            if func_type.is_subclass(function_type)? {
+                let func_code = func.getattr("__code__")?;
+                let func_code_type = func_code.get_type();
+                let func_ptr = func.as_ptr() as usize;
+
+                if func_code_type.is(code_type)
+                    && !visited.contains(&func_ptr) {
+                    visited.insert(func_ptr);
+                    let func_py: Py<PyAny> = func.into();
+                    results.push(func_py);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
