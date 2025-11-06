@@ -164,7 +164,7 @@ fn write_file_xml<W: Write>(
             .unwrap_or_else(|_| file_info.file_path.clone());
 
         // Calculate the source path
-        let full = full_path.canonicalize()
+        let full = dunce::canonicalize(full_path)
             .unwrap_or_else(|_| full_path.to_path_buf());
         let full_str = full.to_string_lossy().to_string();
         if full_str.len() > relative.len() {
@@ -378,7 +378,7 @@ pub fn print_xml(
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file_info.file_path.clone());
 
-            let full = full_path.canonicalize().unwrap_or_else(|_| full_path.to_path_buf());
+            let full = dunce::canonicalize(full_path).unwrap_or_else(|_| full_path.to_path_buf());
             let full_str = full.to_string_lossy().to_string();
             if full_str.len() > relative.len() {
                 let new_source = full_str[..full_str.len() - relative.len()].trim_end_matches(['/', '\\']).to_string();
