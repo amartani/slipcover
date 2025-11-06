@@ -2,9 +2,9 @@ from typing import Any, Optional
 from .covers import Covers
 from .version import __version__
 from . import branch as br
+from .covers_core import FileMatcher
 from pathlib import Path
 import sys
-import sysconfig
 
 from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
@@ -51,54 +51,8 @@ class CoversLoader(Loader):
         exec(code, module.__dict__)
 
 
-class FileMatcher:
-    def __init__(self):
-        self.cwd = Path.cwd().resolve()
-        self.sources = []
-        self.omit = []
-        self.pylib_paths = (
-            Path(sysconfig.get_path("stdlib")).resolve(),
-            Path(sysconfig.get_path("purelib")).resolve(),
-        )
-
-    def addSource(self, source: Path):
-        if isinstance(source, str):
-            source = Path(source)
-        self.sources.append(source.resolve())
-
-    def addOmit(self, omit):
-        if not omit.startswith("*"):
-            omit = self.cwd / omit
-
-        self.omit.append(omit)
-
-    def matches(self, filename: Optional[Path]):
-        if filename is None:
-            return False
-
-        if isinstance(filename, str):
-            if filename == "built-in":
-                return False  # can't instrument
-            filename = Path(filename)
-
-        if filename.suffix in (".pyd", ".so"):
-            return False  # can't instrument DLLs
-
-        filename = filename.resolve()
-
-        if self.omit:
-            from fnmatch import fnmatch
-
-            if any(fnmatch(filename, o) for o in self.omit):
-                return False
-
-        if self.sources:
-            return any(filename.is_relative_to(s) for s in self.sources)
-
-        if any(filename.is_relative_to(p) for p in self.pylib_paths):
-            return False
-
-        return filename.is_relative_to(self.cwd)
+# FileMatcher is now implemented in Rust (see src_rust/file_matcher.rs)
+# It's imported from covers_core at the top of this file
 
 
 class MatchEverything:

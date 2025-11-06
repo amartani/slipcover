@@ -8,6 +8,7 @@ mod branch;
 mod branch_analysis;
 mod code_analysis;
 mod covers;
+mod file_matcher;
 mod lcovreport;
 mod path;
 mod reporting;
@@ -19,6 +20,7 @@ mod xmlreport;
 use branch::{analyze_branches_ts, decode_branch, encode_branch, is_branch};
 use code_analysis::{branches_from_code, lines_from_code};
 use covers::{Covers, VERSION};
+use file_matcher::FileMatcher;
 use lcovreport::print_lcov;
 use path::PathSimplifier;
 use reporting::{add_summaries, format_missing_py, print_coverage};
@@ -49,6 +51,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Covers>()?;
+    m.add_class::<FileMatcher>()?;
 
     // Version
     m.add("__version__", VERSION)?;
