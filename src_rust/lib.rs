@@ -1235,13 +1235,26 @@ impl Covers {
         let visited_set = visited.bind(py);
         let mut results = Vec::new();
 
+        // Use native Rust HashSet for faster lookups (store Python object pointer addresses)
+        let mut visited_native = AHashSet::new();
+
+        // Populate native set with existing visited items from Python set
+        for item in visited_set.iter() {
+            visited_native.insert(item.as_ptr() as usize);
+        }
+
         // Convert to list first to handle dict_values and other iterables
         let builtins = PyModule::import(py, "builtins")?;
         let list_fn = builtins.getattr("list")?;
         let items_list: Vec<Py<PyAny>> = list_fn.call1((items,))?.extract()?;
 
         for item in items_list {
-            Self::find_funcs_recursive(py, item, visited_set, &mut results, &function_type, &code_type)?;
+            Self::find_funcs_recursive(py, item, &mut visited_native, &mut results, &function_type, &code_type)?;
+        }
+
+        // Sync back to Python set for API consistency
+        for item in &results {
+            visited_set.add(item)?;
         }
 
         Ok(results)
@@ -1413,12 +1426,13 @@ impl Covers {
     fn find_funcs_recursive(
         py: Python,
         root: Py<PyAny>,
-        visited: &Bound<PySet>,
+        visited: &mut AHashSet<usize>,
         results: &mut Vec<Py<PyAny>>,
         function_type: &Bound<PyAny>,
         code_type: &Bound<PyAny>,
     ) -> PyResult<()> {
         let root_bound = root.bind(py);
+        let root_ptr = root_bound.as_ptr() as usize;
         let root_type = root_bound.get_type();
 
         // Check if it's a patchable function
@@ -1427,8 +1441,8 @@ impl Covers {
             let code_obj_type = code_obj.get_type();
 
             if code_obj_type.is(code_type) {
-                if !visited.contains(&root)? {
-                    visited.add(&root)?;
+                if !visited.contains(&root_ptr) {
+                    visited.insert(root_ptr);
                     results.push(root.clone_ref(py));
                 }
                 return Ok(());
@@ -1438,8 +1452,8 @@ impl Covers {
         // Check if it's a type/class
         let type_type = py.get_type::<pyo3::types::PyType>();
         if root_type.is_subclass(&type_type)? {
-            if !visited.contains(&root)? {
-                visited.add(&root)?;
+            if !visited.contains(&root_ptr) {
+                visited.insert(root_ptr);
 
                 // Get dir() of the object
                 let builtins = PyModule::import(py, "builtins")?;
@@ -1454,7 +1468,8 @@ impl Covers {
                 for obj_key in obj_names {
                     for base in mro_list.iter() {
                         let is_root = base.is(root_bound);
-                        let base_visited = visited.contains(&base)?;
+                        let base_ptr = base.as_ptr() as usize;
+                        let base_visited = visited.contains(&base_ptr);
 
                         if is_root || !base_visited {
                             let base_dict = base.getattr("__dict__")?;
@@ -1480,10 +1495,11 @@ impl Covers {
             if func_type.is_subclass(function_type)? {
                 let func_code = func.getattr("__code__")?;
                 let func_code_type = func_code.get_type();
+                let func_ptr = func.as_ptr() as usize;
 
                 if func_code_type.is(code_type)
-                    && !visited.contains(&func)? {
-                    visited.add(&func)?;
+                    && !visited.contains(&func_ptr) {
+                    visited.insert(func_ptr);
                     let func_py: Py<PyAny> = func.into();
                     results.push(func_py);
                 }
