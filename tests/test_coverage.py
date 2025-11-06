@@ -1798,7 +1798,12 @@ def test_lcov_flag_with_pytest(tmp_path):
 
     # Verify LCOV format structure
     assert "TN:" in lcov_text
-    assert "SF:tests/pyt.py" in lcov_text or "SF:pyt.py" in lcov_text
+    # Check for path with either forward or backslash (Windows vs Unix)
+    assert (
+        "SF:tests/pyt.py" in lcov_text
+        or "SF:tests\\pyt.py" in lcov_text
+        or "SF:pyt.py" in lcov_text
+    )
     assert "end_of_record" in lcov_text
 
     # Verify line data exists
@@ -1821,7 +1826,12 @@ def test_lcov_flag_with_branches_and_pytest(tmp_path):
 
     # Verify LCOV format structure
     assert "TN:" in lcov_text
-    assert "SF:tests/pyt.py" in lcov_text or "SF:pyt.py" in lcov_text
+    # Check for path with either forward or backslash (Windows vs Unix)
+    assert (
+        "SF:tests/pyt.py" in lcov_text
+        or "SF:tests\\pyt.py" in lcov_text
+        or "SF:pyt.py" in lcov_text
+    )
     assert "end_of_record" in lcov_text
 
     # Verify line data exists
