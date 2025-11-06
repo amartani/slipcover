@@ -67,10 +67,7 @@ impl FileMatcher {
         };
 
         let path = PathBuf::from(source_str);
-        let resolved = path.canonicalize().unwrap_or_else(|_| {
-            // If canonicalize fails, try to resolve relative to cwd
-            self.cwd.join(&path)
-        });
+        let resolved = self.resolve_path(&path);
         self.sources.push(resolved);
         Ok(())
     }
@@ -112,10 +109,11 @@ impl FileMatcher {
 
         // Try to get the path from a Path-like object (__fspath__ method)
         if let Ok(path_obj) = filename.call_method0("__fspath__")
-            && let Ok(path_str) = path_obj.extract::<String>() {
-                let path = PathBuf::from(path_str);
-                return self.matches_path(&path);
-            }
+            && let Ok(path_str) = path_obj.extract::<String>()
+        {
+            let path = PathBuf::from(path_str);
+            return self.matches_path(&path);
+        }
 
         // If we can't extract a path, just return false
         Ok(false)
@@ -123,27 +121,57 @@ impl FileMatcher {
 }
 
 impl FileMatcher {
+    /// Normalize a path by removing "." and ".." components
+    /// This mimics Python's Path.resolve() behavior without requiring the path to exist
+    fn normalize_path(path: &Path) -> PathBuf {
+        use std::path::Component;
+
+        let mut components = Vec::new();
+        for component in path.components() {
+            match component {
+                Component::CurDir => {} // Skip "."
+                Component::ParentDir => {
+                    // Go up one level if possible
+                    if !components.is_empty() {
+                        components.pop();
+                    }
+                }
+                comp => components.push(comp),
+            }
+        }
+        components.iter().collect()
+    }
+
+    /// Resolve a path to an absolute, normalized path
+    /// Like Python's Path.resolve() - doesn't require the path to exist
+    fn resolve_path(&self, path: &Path) -> PathBuf {
+        // First try to canonicalize (handles symlinks and confirms existence)
+        if let Ok(canonical) = path.canonicalize() {
+            return canonical;
+        }
+
+        // Path doesn't exist, so manually resolve it
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.cwd.join(path)
+        };
+
+        // Normalize by removing ".." and "." components
+        Self::normalize_path(&absolute)
+    }
+
     /// Internal method to check if a path matches
     fn matches_path(&self, path: &Path) -> PyResult<bool> {
         // Check for DLL/shared library extensions
         if let Some(ext) = path.extension()
-            && (ext == "pyd" || ext == "so") {
-                return Ok(false); // Can't instrument DLLs
-            }
+            && (ext == "pyd" || ext == "so")
+        {
+            return Ok(false); // Can't instrument DLLs
+        }
 
         // Resolve the path
-        let resolved = match path.canonicalize() {
-            Ok(p) => p,
-            Err(_) => {
-                // If canonicalize fails (e.g., file doesn't exist), try resolving relative to cwd
-                
-                if path.is_relative() {
-                    self.cwd.join(path)
-                } else {
-                    path.to_path_buf()
-                }
-            }
-        };
+        let resolved = self.resolve_path(path);
 
         // Check omit patterns
         if !self.omit.is_empty() {
