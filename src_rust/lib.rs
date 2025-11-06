@@ -21,7 +21,7 @@ use code_analysis::{branches_from_code, lines_from_code};
 use covers::{Covers, VERSION};
 use lcovreport::print_lcov;
 use path::PathSimplifier;
-use reporting::{add_summaries, print_coverage};
+use reporting::{add_summaries, format_missing_py, print_coverage};
 use tracker::CoverageTracker;
 use xmlreport::print_xml;
 
@@ -40,6 +40,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 
     // Reporting functions
     m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
+    m.add_function(wrap_pyfunction!(format_missing_py, m)?)?;
     m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
     m.add_function(wrap_pyfunction!(print_xml, m)?)?;
     m.add_function(wrap_pyfunction!(print_lcov, m)?)?;

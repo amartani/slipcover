@@ -52,7 +52,7 @@ impl CoverageTracker {
     /// This is the performance-critical callback function
     pub fn handle_line(&self, filename: String, line: i32) {
         // Work with the data structures
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         let seen_set = inner.newly_seen.entry(filename).or_default();
 
         if is_branch(line) {
@@ -65,7 +65,7 @@ impl CoverageTracker {
 
     /// Get and clear the newly seen lines/branches
     pub fn get_newly_seen(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
 
         // Create a new empty HashMap for newly_seen and swap it with the current one
         let old_newly_seen = std::mem::take(&mut inner.newly_seen);
@@ -92,35 +92,29 @@ impl CoverageTracker {
 
     /// Update all_seen with the contents of newly_seen
     pub fn merge_newly_seen(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
 
-        // Clone the newly_seen data first to avoid borrow checker issues
-        let newly_seen_data: Vec<(String, AHashSet<LineOrBranch>)> = inner
-            .newly_seen
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-
-        for (filename, new_items) in newly_seen_data {
-            let all_set = inner.all_seen.entry(filename).or_default();
-            for item in new_items {
-                all_set.insert(item);
-            }
+        // Take ownership of newly_seen and replace with empty map, avoiding clones
+        let newly_seen = std::mem::take(&mut inner.newly_seen);
+        for (filename, new_items) in newly_seen {
+            inner
+                .all_seen
+                .entry(filename)
+                .or_default()
+                .extend(new_items);
         }
-
-        inner.newly_seen.clear();
     }
 
     /// Add instrumented lines for a file
     pub fn add_code_lines(&self, filename: String, lines: Vec<i32>) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         let lines_set = inner.code_lines.entry(filename).or_default();
         lines_set.extend(lines);
     }
 
     /// Add instrumented branches for a file
     pub fn add_code_branches(&self, filename: String, branches: Vec<(i32, i32)>) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         let branches_set = inner.code_branches.entry(filename).or_default();
         branches_set.extend(branches);
     }
@@ -165,21 +159,21 @@ impl CoverageTracker {
 
     /// Clear all coverage data (for child processes)
     pub fn clear_all_seen(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         inner.all_seen.clear();
         inner.newly_seen.clear();
     }
 
     /// Get all instrumented files
     pub fn get_instrumented_files(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         let files: Vec<&String> = inner.code_lines.keys().collect();
         Ok(PyList::new(py, files)?.into())
     }
 
     /// Check if a file has been instrumented
     pub fn has_file(&self, filename: String) -> bool {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         inner.code_lines.contains_key(&filename)
     }
 }
@@ -191,7 +185,7 @@ impl CoverageTracker {
         &self,
         with_branches: bool,
     ) -> AHashMap<String, FileCoverageData> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().expect("CoverageTracker mutex poisoned");
         let mut files_data: AHashMap<String, FileCoverageData> = AHashMap::new();
 
         for (filename, code_lines) in inner.code_lines.iter() {

@@ -13,6 +13,7 @@ from .covers_core import (  # noqa: F401
     branches_from_code,
     decode_branch,
     encode_branch,
+    format_missing_py as format_missing,
     is_branch,
     lines_from_code,
     print_coverage,
@@ -21,7 +22,32 @@ from .covers_core import (  # noqa: F401
     __version__,
 )
 
-# FIXME provide __all__
+__all__ = [
+    # Core classes (from Rust)
+    "Covers",
+    "CoverageTracker",
+    "PathSimplifier",
+    # Branch functions (from Rust)
+    "encode_branch",
+    "decode_branch",
+    "is_branch",
+    # Code analysis functions (from Rust)
+    "lines_from_code",
+    "branches_from_code",
+    # Reporting functions (from Rust)
+    "add_summaries",
+    "print_coverage",
+    "print_xml",
+    "print_lcov",
+    # Python utilities
+    "findlinestarts",
+    "format_missing",
+    "merge_coverage",
+    # Exceptions
+    "CoversError",
+    # Version
+    "__version__",
+]
 
 # Python 3.13 returns 'None' lines;
 # Python 3.11+ generates a line just for RESUME or RETURN_GENERATOR, POP_TOP, RESUME;
@@ -37,56 +63,14 @@ def findlinestarts(co: types.CodeType):
 
 
 if TYPE_CHECKING:
-    from typing import List
+    pass
 
 
 class CoversError(Exception):
     pass
 
 
-def format_missing(
-    missing_lines: List[int], executed_lines: List[int], missing_branches: List[tuple]
-) -> str:
-    """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
-    between missed ones"""
-
-    missing_set = set(missing_lines)
-    missing_branches = [
-        (a, b)
-        for a, b in missing_branches
-        if a not in missing_set and b not in missing_set
-    ]
-
-    def format_branch(br):
-        return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
-
-    def find_ranges():
-        executed = set(executed_lines)
-        it = iter(missing_lines)  # assumed sorted
-        a = next(it, None)
-        while a is not None:
-            while missing_branches and missing_branches[0][0] < a:
-                yield format_branch(missing_branches.pop(0))
-
-            b = a
-            n = next(it, None)
-            while n is not None:
-                if any(line in executed for line in range(b + 1, n + 1)):
-                    break
-
-                b = n
-                n = next(it, None)
-
-            yield str(a) if a == b else f"{a}-{b}"
-
-            a = n
-
-        while missing_branches:
-            yield format_branch(missing_branches.pop(0))
-
-    return ", ".join(find_ranges())
-
-
+# format_missing is now implemented in Rust (imported above)
 # print_xml is now implemented in Rust (imported above)
 
 
