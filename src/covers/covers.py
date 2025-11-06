@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import dis
-import sys
 import types
 from typing import TYPE_CHECKING
-
-from .xmlreport import XmlReporter
 
 # Import from Rust
 from .covers_core import (  # noqa: F401
@@ -19,6 +16,7 @@ from .covers_core import (  # noqa: F401
     is_branch,
     lines_from_code,
     print_coverage,
+    print_xml,
     __version__,
 )
 
@@ -38,9 +36,7 @@ def findlinestarts(co: types.CodeType):
 
 
 if TYPE_CHECKING:
-    from typing import Iterable, List
-
-    from .schemas import Coverage
+    from typing import List
 
 
 class CoversError(Exception):
@@ -90,20 +86,7 @@ def format_missing(
     return ", ".join(find_ranges())
 
 
-def print_xml(
-    coverage: Coverage,
-    source_paths: Iterable[str],
-    *,
-    with_branches: bool = False,
-    xml_package_depth: int = 99,
-    outfile=sys.stdout,
-) -> None:
-    XmlReporter(
-        coverage=coverage,
-        source=source_paths,
-        with_branches=with_branches,
-        xml_package_depth=xml_package_depth,
-    ).report(outfile=outfile)
+# print_xml is now implemented in Rust (imported above)
 
 
 # print_coverage is now implemented in Rust (imported above)
