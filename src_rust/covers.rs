@@ -10,6 +10,7 @@ use ahash::AHashMap;
 use ahash::AHashSet;
 use chrono::SecondsFormat;
 use chrono::prelude::*;
+use pyo3::exceptions::{PyIOError, PyOSError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PySet, PyTuple};
 use std::collections::HashSet;
@@ -23,9 +24,11 @@ pub const VERSION: &str = "1.0.17";
 #[pyclass]
 pub struct Covers {
     immediate: bool,
+    // Reserved for future de-instrumentation feature (exposed via getter for API compatibility)
     #[allow(dead_code)]
     d_miss_threshold: i32,
     branch: bool,
+    // Reserved for future disassembly feature (exposed via getter for API compatibility)
     #[allow(dead_code)]
     disassemble: bool,
     source: Option<Vec<String>>,
@@ -95,7 +98,9 @@ impl Covers {
 
                     // Check if this code object was instrumented by this instance
                     {
-                        let ids = ids_ref.lock().unwrap();
+                        let ids = ids_ref
+                            .lock()
+                            .expect("instrumented_code_ids mutex poisoned");
                         if !ids.contains(&code_id) {
                             // Return DISABLE constant
                             let sys_module = PyModule::import(py, "sys")?;
@@ -149,7 +154,10 @@ impl Covers {
         let code_id = code_bound.as_ptr() as usize;
 
         {
-            let mut ids = self.instrumented_code_ids.lock().unwrap();
+            let mut ids = self
+                .instrumented_code_ids
+                .lock()
+                .expect("instrumented_code_ids mutex poisoned");
             ids.insert(code_id);
         }
 
@@ -444,7 +452,7 @@ impl Covers {
             match dunce::canonicalize(&p) {
                 Ok(resolved) => dirs.push(resolved),
                 Err(e) => {
-                    return Err(PyErr::new::<pyo3::exceptions::PyOSError, _>(format!(
+                    return Err(PyOSError::new_err(format!(
                         "Failed to resolve path {:?}: {}",
                         p, e
                     )));
@@ -505,12 +513,8 @@ impl Covers {
         filename: &str,
         tracker: &CoverageTracker,
     ) -> PyResult<()> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to read file {}: {}",
-                filename, e
-            ))
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| PyIOError::new_err(format!("Failed to read file {}: {}", filename, e)))?;
 
         // Call Python's preinstrument_and_compile from covers.branch module
         let branch_module = PyModule::import(py, "covers.branch")?;

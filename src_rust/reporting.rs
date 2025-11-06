@@ -72,6 +72,17 @@ pub fn format_missing(
     result.join(", ")
 }
 
+/// Python-exposed version of format_missing
+#[pyfunction]
+#[pyo3(signature = (missing_lines, executed_lines, missing_branches))]
+pub fn format_missing_py(
+    missing_lines: Vec<i32>,
+    executed_lines: Vec<i32>,
+    missing_branches: Vec<(i32, i32)>,
+) -> String {
+    format_missing(&missing_lines, &executed_lines, &missing_branches)
+}
+
 /// Row structure for the coverage table
 #[derive(Tabled)]
 struct CoverageRow {
