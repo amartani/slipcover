@@ -1673,3 +1673,161 @@ def test_xml_flag_with_branches_and_pytest(tmp_path):
     assert lines[11].get("branch") is None
     assert lines[11].get("condition-coverage") is None
     assert lines[11].get("missing-branches") is None
+
+
+def test_lcov_flag(cov_merge_fixture: Path):
+    p = subprocess.run(
+        [sys.executable, "-m", "covers", "--lcov", "--out", "out.lcov", "t.py"],
+        check=True,
+    )
+    assert 0 == p.returncode
+
+    lcov_text = (cov_merge_fixture / "out.lcov").read_text(encoding="utf8")
+    lines = lcov_text.strip().split("\n")
+
+    # Verify LCOV format structure
+    assert lines[0] == "TN:"
+    assert lines[1] == "SF:t.py"
+
+    # Parse line data
+    line_data = {}
+    for line in lines:
+        if line.startswith("DA:"):
+            parts = line[3:].split(",")
+            line_num = int(parts[0])
+            hits = int(parts[1])
+            line_data[line_num] = hits
+
+    # Check line coverage (same as XML test)
+    assert line_data[1] == 1  # executed
+    assert line_data[3] == 1  # executed
+    assert line_data[4] == 1  # executed
+    assert line_data[6] == 0  # missing
+    assert line_data[8] == 1  # executed
+    assert line_data[9] == 0  # missing
+    assert line_data[11] == 1  # executed
+
+    # Check summary statistics
+    assert "LF:7" in lcov_text  # 7 lines found
+    assert "LH:5" in lcov_text  # 5 lines hit
+    assert "end_of_record" in lcov_text
+
+
+def test_lcov_flag_with_branches(cov_merge_fixture: Path):
+    p = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "covers",
+            "--branch",
+            "--lcov",
+            "--out",
+            "out.lcov",
+            "t.py",
+        ],
+        check=True,
+    )
+    assert 0 == p.returncode
+
+    lcov_text = (cov_merge_fixture / "out.lcov").read_text(encoding="utf8")
+    lines = lcov_text.strip().split("\n")
+
+    # Verify LCOV format structure
+    assert lines[0] == "TN:"
+    assert lines[1] == "SF:t.py"
+
+    # Parse line data
+    line_data = {}
+    branch_data = []
+    for line in lines:
+        if line.startswith("DA:"):
+            parts = line[3:].split(",")
+            line_num = int(parts[0])
+            hits = int(parts[1])
+            line_data[line_num] = hits
+        elif line.startswith("BRDA:"):
+            branch_data.append(line)
+
+    # Check line coverage (same as without branches)
+    assert line_data[1] == 1  # executed
+    assert line_data[3] == 1  # executed
+    assert line_data[4] == 1  # executed
+    assert line_data[6] == 0  # missing
+    assert line_data[8] == 1  # executed
+    assert line_data[9] == 0  # missing
+    assert line_data[11] == 1  # executed
+
+    # Check branch data exists
+    assert len(branch_data) > 0
+    # Line 3 should have branches (one taken, one not taken)
+    line_3_branches = [b for b in branch_data if b.startswith("BRDA:3,")]
+    assert len(line_3_branches) == 2
+    # One branch taken (ends with ",1"), one not taken (ends with ",-")
+    taken = sum(1 for b in line_3_branches if b.endswith(",1"))
+    not_taken = sum(1 for b in line_3_branches if b.endswith(",-"))
+    assert taken == 1
+    assert not_taken == 1
+
+    # Line 8 should have branches
+    line_8_branches = [b for b in branch_data if b.startswith("BRDA:8,")]
+    assert len(line_8_branches) == 2
+    taken = sum(1 for b in line_8_branches if b.endswith(",1"))
+    not_taken = sum(1 for b in line_8_branches if b.endswith(",-"))
+    assert taken == 1
+    assert not_taken == 1
+
+    # Check summary statistics
+    assert "LF:7" in lcov_text  # 7 lines found
+    assert "LH:5" in lcov_text  # 5 lines hit
+    assert "BRF:4" in lcov_text  # 4 branches found
+    assert "BRH:2" in lcov_text  # 2 branches hit
+    assert "end_of_record" in lcov_text
+
+
+def test_lcov_flag_with_pytest(tmp_path):
+    out_file = tmp_path / "out.lcov"
+
+    test_file = str(Path("tests") / "pyt.py")
+
+    subprocess.run(
+        f"{sys.executable} -m covers --lcov --out {out_file} -m pytest {test_file}".split(),
+        check=True,
+    )
+
+    lcov_text = out_file.read_text(encoding="utf8")
+
+    # Verify LCOV format structure
+    assert "TN:" in lcov_text
+    assert "SF:tests/pyt.py" in lcov_text or "SF:pyt.py" in lcov_text
+    assert "end_of_record" in lcov_text
+
+    # Verify line data exists
+    assert "DA:" in lcov_text
+    assert "LF:" in lcov_text
+    assert "LH:" in lcov_text
+
+
+def test_lcov_flag_with_branches_and_pytest(tmp_path):
+    out_file = tmp_path / "out.lcov"
+
+    test_file = str(Path("tests") / "pyt.py")
+
+    subprocess.run(
+        f"{sys.executable} -m covers --branch --lcov --out {out_file} -m pytest {test_file}".split(),
+        check=True,
+    )
+
+    lcov_text = out_file.read_text(encoding="utf8")
+
+    # Verify LCOV format structure
+    assert "TN:" in lcov_text
+    assert "SF:tests/pyt.py" in lcov_text or "SF:pyt.py" in lcov_text
+    assert "end_of_record" in lcov_text
+
+    # Verify line data exists
+    assert "DA:" in lcov_text
+    assert "LF:12" in lcov_text
+    assert "LH:12" in lcov_text
+
+    # Note: Branch data may not be present due to pytest's assertion rewriter
+    # stripping out branch markers (known issue, same as XML test)
