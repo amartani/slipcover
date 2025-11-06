@@ -33,17 +33,26 @@ impl FileMatcher {
             .call_method1("get_path", ("purelib",))?
             .extract::<String>()?;
 
+        // Canonicalize and simplify Python library paths
         let pylib_paths = vec![
             PathBuf::from(stdlib_path)
                 .canonicalize()
+                .map(|p| dunce::simplified(&p).to_path_buf())
                 .unwrap_or_default(),
             PathBuf::from(purelib_path)
                 .canonicalize()
+                .map(|p| dunce::simplified(&p).to_path_buf())
                 .unwrap_or_default(),
         ];
 
+        // Canonicalize and simplify cwd (remove Windows UNC prefixes)
+        let cwd = match cwd.canonicalize() {
+            Ok(canonical) => dunce::simplified(&canonical).to_path_buf(),
+            Err(_) => cwd,
+        };
+
         Ok(FileMatcher {
-            cwd: cwd.canonicalize().unwrap_or(cwd),
+            cwd,
             sources: Vec::new(),
             omit: Vec::new(),
             pylib_paths,
@@ -131,11 +140,13 @@ impl FileMatcher {
             match component {
                 Component::CurDir => {} // Skip "."
                 Component::ParentDir => {
-                    // Go up one level if possible
-                    if !components.is_empty() {
+                    // Go up one level, but don't pop past prefix/root
+                    // Only pop if the last component is a Normal path segment
+                    if let Some(&Component::Normal(_)) = components.last() {
                         components.pop();
                     }
                 }
+                // Keep prefix, root, and normal components
                 comp => components.push(comp),
             }
         }
@@ -147,7 +158,8 @@ impl FileMatcher {
     fn resolve_path(&self, path: &Path) -> PathBuf {
         // First try to canonicalize (handles symlinks and confirms existence)
         if let Ok(canonical) = path.canonicalize() {
-            return canonical;
+            // Use dunce to simplify Windows UNC paths
+            return dunce::simplified(&canonical).to_path_buf();
         }
 
         // Path doesn't exist, so manually resolve it
@@ -158,7 +170,10 @@ impl FileMatcher {
         };
 
         // Normalize by removing ".." and "." components
-        Self::normalize_path(&absolute)
+        let normalized = Self::normalize_path(&absolute);
+
+        // Use dunce to simplify Windows UNC paths
+        dunce::simplified(&normalized).to_path_buf()
     }
 
     /// Internal method to check if a path matches
