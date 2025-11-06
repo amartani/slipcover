@@ -172,6 +172,11 @@ class ImportManager:
 
 
 def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
+    # Store branch information and source for files processed by pytest
+    # This is needed because pytest's assertion rewriter strips branch markers from the AST
+    pytest_branches = {}  # filename -> list of (from_line, to_line) tuples
+    pytest_sources = {}  # filename -> source code
+
     def redirect_calls(module, funcName, funcWrapperName):
         """Redirects calls to the given function to a wrapper function in the same module."""
         import ast
@@ -227,6 +232,13 @@ def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
 
     def exec_wrapper(obj, g):
         if hasattr(obj, "co_filename") and file_matcher.matches(obj.co_filename):
+            filename = obj.co_filename
+            # If we have stored source for this file, recompile with branch markers
+            # This is needed because pytest strips branch markers from the AST
+            if sci.branch and filename in pytest_sources:
+                # Preinstrument and recompile the source with branch markers
+                preinstrumented_ast = br.preinstrument(pytest_sources[filename])
+                obj = compile(preinstrumented_ast, filename, "exec")
             obj = sci.instrument(obj)
         exec(obj, g)
 
@@ -260,13 +272,38 @@ def wrap_pytest(sci: Covers, file_matcher: FileMatcher):
             # but the filename isn't clearly available. So here we instead always pre-instrument
             # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
             # *should* be innocuous if not followed by sci.instrument.
-            # args[0] is mod (AST), args[1] is source
+            # args[0] is mod (AST), args[1] is source, args[2] is module_path
             # preinstrument now takes source and returns modified AST
             # Convert bytes to string if necessary
             source = args[1]
             if isinstance(source, bytes):
                 source = source.decode("utf-8")
-            args = (br.preinstrument(source), *args[1:])
+
+            # Calculate and store branch information and source for this file
+            # Since pytest strips branch markers, we need to store this separately
+            # and recompile later in exec_wrapper
+            module_path = str(args[2]) if len(args) > 2 else None
+            if module_path:
+                from .covers_core import analyze_branches_ts
+
+                branch_data = analyze_branches_ts(source)
+                # Convert branch_data dict to list of (from_line, to_line) tuples
+                # branch_data format: {branch_line: [(insert_line, to_line), ...]}
+                # - if insert_line != 0: branch goes to insert_line
+                # - if insert_line == 0: branch goes to to_line (else/exit)
+                branches = []
+                for branch_line, markers in branch_data.items():
+                    for insert_line, to_line in markers:
+                        if insert_line != 0:
+                            branches.append((branch_line, insert_line))
+                        else:
+                            branches.append((branch_line, to_line))
+                if branches:
+                    pytest_branches[module_path] = branches
+                    pytest_sources[module_path] = source
+
+            # Don't preinstrument here - pytest will strip the markers anyway
+            # We'll recompile with markers in exec_wrapper instead
             return orig_rewrite_asserts(*args)
 
         def adjust_name(fn: Path) -> Path:
