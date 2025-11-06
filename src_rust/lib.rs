@@ -11,6 +11,8 @@ use tabled::{Table, Tabled, settings::Style};
 use chrono::prelude::*;
 mod branch_analysis;
 use branch_analysis::analyze_branches;
+mod xmlreport;
+use xmlreport::print_xml;
 
 // Branch encoding constants
 const BRANCH_MARKER: i32 = 1 << 30;
@@ -1548,6 +1550,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
     m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_branches_ts, m)?)?;
+    m.add_function(wrap_pyfunction!(print_xml, m)?)?;
     m.add_class::<CoverageTracker>()?;
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Covers>()?;
