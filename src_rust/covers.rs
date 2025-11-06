@@ -365,6 +365,18 @@ impl Covers {
         branches_from_code(py, co.bind(py))
     }
 
+    /// Add code branches for a file (for pytest integration)
+    fn add_code_branches(
+        &self,
+        py: Python,
+        filename: String,
+        branches: Vec<(i32, i32)>,
+    ) -> PyResult<()> {
+        let tracker = self.tracker.bind(py).borrow();
+        tracker.add_code_branches(filename, branches);
+        Ok(())
+    }
+
     #[pyo3(signature = (outfile=None, missing_width=None))]
     fn print_coverage(
         &mut self,
