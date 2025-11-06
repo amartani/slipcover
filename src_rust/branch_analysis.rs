@@ -1,5 +1,5 @@
-use tree_sitter::{Parser, Node};
 use ahash::AHashMap;
+use tree_sitter::{Node, Parser};
 use tree_sitter_python::LANGUAGE;
 
 /// Information about a branch point
@@ -16,10 +16,12 @@ pub struct BranchInfo {
 /// Analyzes Python source code to identify branch points for coverage instrumentation
 pub fn analyze_branches(source: &str) -> Result<Vec<BranchInfo>, String> {
     let mut parser = Parser::new();
-    parser.set_language(&LANGUAGE.into())
+    parser
+        .set_language(&LANGUAGE.into())
         .map_err(|e| format!("Error loading Python grammar: {:?}", e))?;
 
-    let tree = parser.parse(source, None)
+    let tree = parser
+        .parse(source, None)
         .ok_or("Failed to parse source code")?;
 
     let mut branches = Vec::new();
@@ -46,7 +48,7 @@ fn compute_next_nodes_recursive(
     node: &Node,
     source: &str,
     parent_next: usize,
-    next_nodes: &mut AHashMap<usize, usize>
+    next_nodes: &mut AHashMap<usize, usize>,
 ) {
     let node_id = node.id();
     let kind = node.kind();
@@ -71,8 +73,8 @@ fn compute_next_nodes_recursive(
     // Note: async for does NOT loop back (matching Python's old implementation)
     if kind == "for_statement" {
         // Check if this is async for by looking for an 'async' child
-        let is_async = (0..node.child_count())
-            .any(|i| node.child(i).map(|c| c.kind()) == Some("async"));
+        let is_async =
+            (0..node.child_count()).any(|i| node.child(i).map(|c| c.kind()) == Some("async"));
 
         if is_async {
             // Async for: body does NOT loop back
@@ -90,7 +92,8 @@ fn compute_next_nodes_recursive(
         // Process other children (condition, alternative) with parent's next
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
-                && node.field_name_for_child(i as u32) != Some("body") {
+                && node.field_name_for_child(i as u32) != Some("body")
+            {
                 compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
             }
         }
@@ -109,7 +112,8 @@ fn compute_next_nodes_recursive(
         // Process other children (condition, alternative) with parent's next
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
-                && node.field_name_for_child(i as u32) != Some("body") {
+                && node.field_name_for_child(i as u32) != Some("body")
+            {
                 compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
             }
         }
@@ -123,16 +127,18 @@ fn compute_next_nodes_recursive(
             // Process each case_clause in the body with parent_next
             for i in 0..body.child_count() {
                 if let Some(case) = body.child(i)
-                    && case.kind() == "case_clause" {
-                        compute_next_nodes_recursive(&case, source, parent_next, next_nodes);
-                    }
+                    && case.kind() == "case_clause"
+                {
+                    compute_next_nodes_recursive(&case, source, parent_next, next_nodes);
+                }
             }
         }
 
         // Process non-body children
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
-                && node.field_name_for_child(i as u32) != Some("body") {
+                && node.field_name_for_child(i as u32) != Some("body")
+            {
                 compute_next_nodes_recursive(&child, source, parent_next, next_nodes);
             }
         }
@@ -200,9 +206,10 @@ fn compute_next_nodes_recursive(
         let mut stmts: Vec<Node> = Vec::new();
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
-                && is_statement(&child) {
-                    stmts.push(child);
-                }
+                && is_statement(&child)
+            {
+                stmts.push(child);
+            }
         }
 
         // Each statement's next is the following statement, except the last
@@ -237,7 +244,7 @@ fn find_branches_recursive(
     node: &Node,
     source: &str,
     next_nodes: &AHashMap<usize, usize>,
-    branches: &mut Vec<BranchInfo>
+    branches: &mut Vec<BranchInfo>,
 ) -> Result<(), String> {
     let kind = node.kind();
 
@@ -248,7 +255,9 @@ fn find_branches_recursive(
             // Find the condition and body
             handle_elif_as_if(node, source, next_nodes, branches)?;
         }
-        "for_statement" | "while_statement" | "async_for_statement" => handle_loop_statement(node, source, next_nodes, branches)?,
+        "for_statement" | "while_statement" | "async_for_statement" => {
+            handle_loop_statement(node, source, next_nodes, branches)?
+        }
         "match_statement" => handle_match_statement(node, source, next_nodes, branches)?,
         _ => {
             // Recurse into children
@@ -267,7 +276,7 @@ fn handle_elif_as_if(
     node: &Node,
     source: &str,
     next_nodes: &AHashMap<usize, usize>,
-    branches: &mut Vec<BranchInfo>
+    branches: &mut Vec<BranchInfo>,
 ) -> Result<(), String> {
     // elif_clause has similar structure to if_statement
     // It has condition and consequence fields, and optionally alternative
@@ -287,14 +296,15 @@ fn handle_elif_as_if(
     // We need to look at the parent to find sibling alternatives
     if let Some(parent) = node.parent() {
         let mut found_else = false;
-        let elif_index = (0..parent.child_count())
-            .find(|&i| parent.child(i).map(|c| c.id()) == Some(node.id()));
+        let elif_index =
+            (0..parent.child_count()).find(|&i| parent.child(i).map(|c| c.id()) == Some(node.id()));
 
         if let Some(start_idx) = elif_index {
             // Look for siblings after this elif
             for i in (start_idx + 1)..parent.child_count() {
                 if let Some(sibling) = parent.child(i)
-                    && parent.field_name_for_child(i as u32) == Some("alternative") {
+                    && parent.field_name_for_child(i as u32) == Some("alternative")
+                {
                     let sibling_kind = sibling.kind();
 
                     if sibling_kind == "else_clause" {
@@ -348,7 +358,7 @@ fn handle_if_statement(
     node: &Node,
     source: &str,
     next_nodes: &AHashMap<usize, usize>,
-    branches: &mut Vec<BranchInfo>
+    branches: &mut Vec<BranchInfo>,
 ) -> Result<(), String> {
     let branch_line = node.start_position().row + 1; // 1-indexed
     let mut markers = Vec::new();
@@ -367,7 +377,8 @@ fn handle_if_statement(
     let mut found_alternative = false;
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i)
-            && node.field_name_for_child(i as u32) == Some("alternative") {
+            && node.field_name_for_child(i as u32) == Some("alternative")
+        {
             found_alternative = true;
             let alt_kind = child.kind();
 
@@ -415,7 +426,7 @@ fn handle_loop_statement(
     node: &Node,
     source: &str,
     next_nodes: &AHashMap<usize, usize>,
-    branches: &mut Vec<BranchInfo>
+    branches: &mut Vec<BranchInfo>,
 ) -> Result<(), String> {
     let branch_line = node.start_position().row + 1; // 1-indexed
     let mut markers = Vec::new();
@@ -459,7 +470,7 @@ fn handle_match_statement(
     node: &Node,
     source: &str,
     next_nodes: &AHashMap<usize, usize>,
-    branches: &mut Vec<BranchInfo>
+    branches: &mut Vec<BranchInfo>,
 ) -> Result<(), String> {
     let branch_line = node.start_position().row + 1; // 1-indexed
     let mut markers = Vec::new();
@@ -469,35 +480,39 @@ fn handle_match_statement(
     if let Some(body) = node.child_by_field_name("body") {
         for i in 0..body.child_count() {
             if let Some(case) = body.child(i)
-                && case.kind() == "case_clause" {
-                    // Each case gets a marker
-                    let case_first_line = find_first_statement_line(&case);
-                    if let Some(first_line) = case_first_line {
-                        markers.push((first_line, first_line));
-                    }
+                && case.kind() == "case_clause"
+            {
+                // Each case gets a marker
+                let case_first_line = find_first_statement_line(&case);
+                if let Some(first_line) = case_first_line {
+                    markers.push((first_line, first_line));
+                }
 
-                    // Check if this is a wildcard case
-                    for j in 0..case.child_count() {
-                        if let Some(child) = case.child(j) {
-                            let kind = child.kind();
-                            if kind == "case_pattern" {
-                                // Check if the pattern contains a wildcard (recursively)
-                                eprintln!("DEBUG: checking case_pattern for wildcard");
-                                let has_wild = contains_wildcard(&child);
-                                eprintln!("  contains_wildcard returned: {}", has_wild);
-                                if has_wild && !has_guard(&case) {
-                                    has_wildcard = true;
-                                }
-                                break;
+                // Check if this is a wildcard case
+                for j in 0..case.child_count() {
+                    if let Some(child) = case.child(j) {
+                        let kind = child.kind();
+                        if kind == "case_pattern" {
+                            // Check if the pattern contains a wildcard (recursively)
+                            eprintln!("DEBUG: checking case_pattern for wildcard");
+                            let has_wild = contains_wildcard(&child);
+                            eprintln!("  contains_wildcard returned: {}", has_wild);
+                            if has_wild && !has_guard(&case) {
+                                has_wildcard = true;
                             }
+                            break;
                         }
                     }
                 }
+            }
         }
     }
 
     // If no wildcard, add a fallthrough branch
-    eprintln!("DEBUG: match at line {} has_wildcard={}", branch_line, has_wildcard);
+    eprintln!(
+        "DEBUG: match at line {} has_wildcard={}",
+        branch_line, has_wildcard
+    );
     if !has_wildcard {
         let next_line = next_nodes.get(&node.id()).copied().unwrap_or(0);
         eprintln!("  adding fallthrough case to line {}", next_line);
@@ -527,9 +542,10 @@ fn find_first_statement_line(node: &Node) -> Option<usize> {
         // These nodes have a body - recurse into it
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
-                && let Some(line) = find_first_statement_line(&child) {
-                    return Some(line);
-                }
+                && let Some(line) = find_first_statement_line(&child)
+            {
+                return Some(line);
+            }
         }
         return None;
     }
@@ -546,9 +562,10 @@ fn find_first_statement_line(node: &Node) -> Option<usize> {
     if kind == "block" {
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
-                && is_statement(&child) {
-                    return Some(child.start_position().row + 1);
-                }
+                && is_statement(&child)
+            {
+                return Some(child.start_position().row + 1);
+            }
         }
         return None;
     }
@@ -561,9 +578,10 @@ fn find_first_statement_line(node: &Node) -> Option<usize> {
     // Check all children
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i)
-            && let Some(line) = find_first_statement_line(&child) {
-                return Some(line);
-            }
+            && let Some(line) = find_first_statement_line(&child)
+        {
+            return Some(line);
+        }
     }
 
     None
@@ -571,7 +589,9 @@ fn find_first_statement_line(node: &Node) -> Option<usize> {
 
 fn is_statement(node: &Node) -> bool {
     let kind = node.kind();
-    !kind.contains("comment") && !kind.contains("newline") && node.is_named()
+    !kind.contains("comment")
+        && !kind.contains("newline")
+        && node.is_named()
         && !matches!(kind, "block" | ":" | "(" | ")" | "[" | "]" | "{" | "}")
 }
 
@@ -594,7 +614,11 @@ fn is_wildcard_pattern(node: &Node) -> bool {
 }
 
 fn contains_wildcard(node: &Node) -> bool {
-    eprintln!("    contains_wildcard: kind={}, named_children={}", node.kind(), node.named_child_count());
+    eprintln!(
+        "    contains_wildcard: kind={}, named_children={}",
+        node.kind(),
+        node.named_child_count()
+    );
     // Check if this node or any descendant is a wildcard pattern
     if is_wildcard_pattern(node) {
         eprintln!("      is_wildcard!");
@@ -603,22 +627,25 @@ fn contains_wildcard(node: &Node) -> bool {
 
     // For case_pattern nodes with a single name child, treat as wildcard
     // A bare identifier like `case y:` is a capture pattern (matches anything)
-    if node.kind() == "case_pattern" && node.named_child_count() == 1
-        && let Some(child) = node.named_child(0) {
-            let child_kind = child.kind();
-            eprintln!("      single child kind={}", child_kind);
-            if child_kind == "identifier" || child_kind == "dotted_name" {
-                eprintln!("      is capture!");
-                return true;
-            }
+    if node.kind() == "case_pattern"
+        && node.named_child_count() == 1
+        && let Some(child) = node.named_child(0)
+    {
+        let child_kind = child.kind();
+        eprintln!("      single child kind={}", child_kind);
+        if child_kind == "identifier" || child_kind == "dotted_name" {
+            eprintln!("      is capture!");
+            return true;
         }
+    }
 
     // Recursively check all children
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i)
-            && contains_wildcard(&child) {
-                return true;
-            }
+            && contains_wildcard(&child)
+        {
+            return true;
+        }
     }
 
     false
