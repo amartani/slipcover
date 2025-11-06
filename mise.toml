@@ -6,17 +6,17 @@ rust = { version = "1.91.0", profile = "default" }
 
 [tasks.python_lint]
 description = "Run Python linting with ruff"
-run = """
-ruff check --fix .
-ruff format .
-"""
+run = [
+  "ruff check --fix .",
+  "ruff format .",
+]
 
 [tasks.rust_lint]
 description = "Run Rust linting with clippy and rustfmt"
-run = """
-cargo fmt
-cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings
-"""
+run = [
+  "cargo fmt",
+  "cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings",
+]
 
 [tasks.lint]
 description = "Run all linting tasks"
