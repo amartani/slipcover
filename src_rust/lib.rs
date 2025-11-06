@@ -53,6 +53,48 @@ enum LineOrBranch {
     Branch(i32, i32),
 }
 
+/// Native Rust structures for coverage data (to avoid Python conversions)
+#[derive(Clone, Debug)]
+struct FileCoverageData {
+    executed_lines: Vec<i32>,
+    missing_lines: Vec<i32>,
+    executed_branches: Vec<(i32, i32)>,
+    missing_branches: Vec<(i32, i32)>,
+}
+
+#[derive(Clone, Debug)]
+struct FileSummary {
+    covered_lines: i32,
+    missing_lines: i32,
+    covered_branches: Option<i32>,
+    missing_branches: Option<i32>,
+    percent_covered: f64,
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct FileData {
+    coverage: FileCoverageData,
+    summary: FileSummary,
+}
+
+#[derive(Clone, Debug)]
+struct MetaData {
+    software: String,
+    version: String,
+    timestamp: String,
+    branch_coverage: bool,
+    show_contexts: bool,
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct CoverageData {
+    meta: MetaData,
+    files: AHashMap<String, FileData>,
+    summary: FileSummary,
+}
+
 /// Core coverage tracking structure
 /// This is the performance-critical data structure that tracks which lines/branches have been executed
 #[pyclass]
@@ -164,15 +206,68 @@ impl CoverageTracker {
         branches_set.extend(branches);
     }
 
-    /// Get coverage data for all files
+    /// Get coverage data for all files (legacy Python API)
     fn get_coverage_data(&self, py: Python, with_branches: bool) -> PyResult<Py<PyAny>> {
+        let files_data = self.get_coverage_data_native(with_branches);
+
+        // Convert to Python structures
+        let files_dict = PyDict::new(py);
+
+        for (filename, file_data) in files_data {
+            let file_dict = PyDict::new(py);
+
+            file_dict.set_item("executed_lines", PyList::new(py, &file_data.executed_lines)?)?;
+            file_dict.set_item("missing_lines", PyList::new(py, &file_data.missing_lines)?)?;
+
+            if with_branches {
+                // Convert branch tuples to Python
+                let exec_br_list = PyList::empty(py);
+                for (from_line, to_line) in file_data.executed_branches {
+                    exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                let miss_br_list = PyList::empty(py);
+                for (from_line, to_line) in file_data.missing_branches {
+                    miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                file_dict.set_item("executed_branches", exec_br_list)?;
+                file_dict.set_item("missing_branches", miss_br_list)?;
+            }
+
+            files_dict.set_item(filename, file_dict)?;
+        }
+
+        Ok(files_dict.into())
+    }
+
+    /// Clear all coverage data (for child processes)
+    fn clear_all_seen(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.all_seen.clear();
+        inner.newly_seen.clear();
+    }
+
+    /// Get all instrumented files
+    fn get_instrumented_files(&self, py: Python) -> PyResult<Py<PyAny>> {
         let inner = self.inner.lock().unwrap();
+        let files: Vec<&String> = inner.code_lines.keys().collect();
+        Ok(PyList::new(py, files)?.into())
+    }
 
-        // Type alias for file coverage data: (executed_lines, missing_lines, executed_branches, missing_branches)
-        type FileCoverageData = (Vec<i32>, Vec<i32>, Vec<(i32, i32)>, Vec<(i32, i32)>);
+    /// Check if a file has been instrumented
+    fn has_file(&self, filename: String) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.code_lines.contains_key(&filename)
+    }
+}
 
-        // Collect data in native Rust structures first
-        let mut files_data: AHashMap<&String, FileCoverageData> = AHashMap::new();
+// Internal methods for CoverageTracker (not exposed to Python)
+impl CoverageTracker {
+    /// Get coverage data for all files (native Rust structures)
+    fn get_coverage_data_native(&self, with_branches: bool) -> AHashMap<String, FileCoverageData> {
+        let inner = self.inner.lock().unwrap();
+        let mut files_data: AHashMap<String, FileCoverageData> = AHashMap::new();
 
         for (filename, code_lines) in inner.code_lines.iter() {
             // Get the seen lines and branches for this file
@@ -229,58 +324,18 @@ impl CoverageTracker {
                 (Vec::new(), Vec::new())
             };
 
-            files_data.insert(filename, (executed_lines, missing_lines, executed_branches, missing_branches));
+            files_data.insert(
+                filename.clone(),
+                FileCoverageData {
+                    executed_lines,
+                    missing_lines,
+                    executed_branches,
+                    missing_branches,
+                },
+            );
         }
 
-        // Now convert to Python structures in one pass
-        let files_dict = PyDict::new(py);
-
-        for (filename, (executed_lines, missing_lines, executed_branches, missing_branches)) in files_data {
-            let file_dict = PyDict::new(py);
-
-            file_dict.set_item("executed_lines", PyList::new(py, &executed_lines)?)?;
-            file_dict.set_item("missing_lines", PyList::new(py, &missing_lines)?)?;
-
-            if with_branches {
-                // Convert branch tuples to Python
-                let exec_br_list = PyList::empty(py);
-                for (from_line, to_line) in executed_branches {
-                    exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
-                }
-
-                let miss_br_list = PyList::empty(py);
-                for (from_line, to_line) in missing_branches {
-                    miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
-                }
-
-                file_dict.set_item("executed_branches", exec_br_list)?;
-                file_dict.set_item("missing_branches", miss_br_list)?;
-            }
-
-            files_dict.set_item(filename, file_dict)?;
-        }
-
-        Ok(files_dict.into())
-    }
-
-    /// Clear all coverage data (for child processes)
-    fn clear_all_seen(&self) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.all_seen.clear();
-        inner.newly_seen.clear();
-    }
-
-    /// Get all instrumented files
-    fn get_instrumented_files(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let inner = self.inner.lock().unwrap();
-        let files: Vec<&String> = inner.code_lines.keys().collect();
-        Ok(PyList::new(py, files)?.into())
-    }
-
-    /// Check if a file has been instrumented
-    fn has_file(&self, filename: String) -> bool {
-        let inner = self.inner.lock().unwrap();
-        inner.code_lines.contains_key(&filename)
+        files_data
     }
 }
 
@@ -748,7 +803,82 @@ fn print_coverage(
     Ok(())
 }
 
-/// Adds (or updates) 'summary' entries in coverage information
+/// Adds summaries to coverage data (native Rust structures)
+fn add_summaries_native(
+    files_data: &mut AHashMap<String, FileCoverageData>,
+    with_branches: bool,
+) -> (AHashMap<String, FileSummary>, FileSummary) {
+    let mut file_summaries: AHashMap<String, FileSummary> = AHashMap::new();
+    let mut g_covered_lines = 0;
+    let mut g_missing_lines = 0;
+    let mut g_covered_branches = 0;
+    let mut g_missing_branches = 0;
+
+    for (filename, file_data) in files_data.iter() {
+        let covered_lines = file_data.executed_lines.len() as i32;
+        let missing_lines_count = file_data.missing_lines.len() as i32;
+
+        let mut nom = covered_lines;
+        let mut den = nom + missing_lines_count;
+
+        let (covered_branches, missing_branches_count) = if with_branches {
+            let cb = file_data.executed_branches.len() as i32;
+            let mb = file_data.missing_branches.len() as i32;
+            nom += cb;
+            den += cb + mb;
+            (Some(cb), Some(mb))
+        } else {
+            (None, None)
+        };
+
+        let percent_covered = if den == 0 { 100.0 } else { 100.0 * nom as f64 / den as f64 };
+
+        file_summaries.insert(
+            filename.clone(),
+            FileSummary {
+                covered_lines,
+                missing_lines: missing_lines_count,
+                covered_branches,
+                missing_branches: missing_branches_count,
+                percent_covered,
+            },
+        );
+
+        g_covered_lines += covered_lines;
+        g_missing_lines += missing_lines_count;
+        if let Some(cb) = covered_branches {
+            g_covered_branches += cb;
+        }
+        if let Some(mb) = missing_branches_count {
+            g_missing_branches += mb;
+        }
+    }
+
+    // Calculate global summary
+    let g_nom = if with_branches {
+        g_covered_lines + g_covered_branches
+    } else {
+        g_covered_lines
+    };
+    let g_den = if with_branches {
+        g_covered_lines + g_missing_lines + g_covered_branches + g_missing_branches
+    } else {
+        g_covered_lines + g_missing_lines
+    };
+    let g_percent_covered = if g_den == 0 { 100.0 } else { 100.0 * g_nom as f64 / g_den as f64 };
+
+    let global_summary = FileSummary {
+        covered_lines: g_covered_lines,
+        missing_lines: g_missing_lines,
+        covered_branches: if with_branches { Some(g_covered_branches) } else { None },
+        missing_branches: if with_branches { Some(g_missing_branches) } else { None },
+        percent_covered: g_percent_covered,
+    };
+
+    (file_summaries, global_summary)
+}
+
+/// Adds (or updates) 'summary' entries in coverage information (legacy Python API)
 #[pyfunction]
 fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
     let mut g_summary_data: AHashMap<String, i32> = AHashMap::new();
@@ -1000,28 +1130,89 @@ impl Covers {
         // Simplify paths
         let simp = PathSimplifier::new()?;
 
-        // Get coverage data from tracker
-        let files_data = tracker.get_coverage_data(py, self.branch)?;
-        let files_dict_raw: &Bound<PyDict> = files_data.bind(py).cast()?;
+        // Get coverage data from tracker using native structures
+        let files_data = tracker.get_coverage_data_native(self.branch);
 
         // Simplify file paths
-        let files_dict = PyDict::new(py);
-        for (key, value) in files_dict_raw.iter() {
-            let path: String = key.extract()?;
+        let mut simplified_files_data: AHashMap<String, FileCoverageData> = AHashMap::new();
+        for (path, file_data) in files_data {
             let simplified = simp.simplify(path);
-            files_dict.set_item(simplified, value)?;
+            simplified_files_data.insert(simplified, file_data);
         }
 
-        // Create meta dict
-        let meta = Self::_make_meta(py, self.branch)?;
+        // Add summaries using native Rust structures
+        let (file_summaries, global_summary) = add_summaries_native(&mut simplified_files_data, self.branch);
 
-        // Create coverage dict
+        // Create meta using native structures
+        let meta_data = Self::_make_meta_native(self.branch);
+
+        // Now convert everything to Python at once
         let cov = PyDict::new(py);
-        cov.set_item("meta", meta)?;
+
+        // Convert meta
+        let meta_dict = PyDict::new(py);
+        meta_dict.set_item("software", meta_data.software)?;
+        meta_dict.set_item("version", meta_data.version)?;
+        meta_dict.set_item("timestamp", meta_data.timestamp)?;
+        meta_dict.set_item("branch_coverage", meta_data.branch_coverage)?;
+        meta_dict.set_item("show_contexts", meta_data.show_contexts)?;
+        cov.set_item("meta", meta_dict)?;
+
+        // Convert files with their summaries
+        let files_dict = PyDict::new(py);
+        for (filename, file_data) in simplified_files_data {
+            let file_dict = PyDict::new(py);
+
+            file_dict.set_item("executed_lines", PyList::new(py, &file_data.executed_lines)?)?;
+            file_dict.set_item("missing_lines", PyList::new(py, &file_data.missing_lines)?)?;
+
+            if self.branch {
+                let exec_br_list = PyList::empty(py);
+                for (from_line, to_line) in file_data.executed_branches {
+                    exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                let miss_br_list = PyList::empty(py);
+                for (from_line, to_line) in file_data.missing_branches {
+                    miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                file_dict.set_item("executed_branches", exec_br_list)?;
+                file_dict.set_item("missing_branches", miss_br_list)?;
+            }
+
+            // Add file summary
+            if let Some(summary) = file_summaries.get(&filename) {
+                let summary_dict = PyDict::new(py);
+                summary_dict.set_item("covered_lines", summary.covered_lines)?;
+                summary_dict.set_item("missing_lines", summary.missing_lines)?;
+                if let Some(cb) = summary.covered_branches {
+                    summary_dict.set_item("covered_branches", cb)?;
+                }
+                if let Some(mb) = summary.missing_branches {
+                    summary_dict.set_item("missing_branches", mb)?;
+                }
+                summary_dict.set_item("percent_covered", summary.percent_covered)?;
+                file_dict.set_item("summary", summary_dict)?;
+            }
+
+            files_dict.set_item(filename, file_dict)?;
+        }
         cov.set_item("files", files_dict)?;
 
-        // Add summaries using Rust implementation
-        add_summaries(py, &cov)?;
+        // Add global summary
+        let g_summary_dict = PyDict::new(py);
+        g_summary_dict.set_item("covered_lines", global_summary.covered_lines)?;
+        g_summary_dict.set_item("missing_lines", global_summary.missing_lines)?;
+        if let Some(cb) = global_summary.covered_branches {
+            g_summary_dict.set_item("covered_branches", cb)?;
+        }
+        if let Some(mb) = global_summary.missing_branches {
+            g_summary_dict.set_item("missing_branches", mb)?;
+        }
+        g_summary_dict.set_item("percent_covered", global_summary.percent_covered)?;
+        g_summary_dict.set_item("percent_covered_display", format!("{}", global_summary.percent_covered.round() as i32))?;
+        cov.set_item("summary", g_summary_dict)?;
 
         Ok(cov.into())
     }
@@ -1109,16 +1300,28 @@ impl Covers {
 
 // Helper methods implementation
 impl Covers {
-    fn _make_meta(py: Python, branch_coverage: bool) -> PyResult<Py<PyDict>> {
+    fn _make_meta_native(branch_coverage: bool) -> MetaData {
         let now = Local::now();
         let timestamp = now.to_rfc3339_opts(SecondsFormat::Micros, true);
 
+        MetaData {
+            software: "covers".to_string(),
+            version: VERSION.to_string(),
+            timestamp,
+            branch_coverage,
+            show_contexts: false,
+        }
+    }
+
+    fn _make_meta(py: Python, branch_coverage: bool) -> PyResult<Py<PyDict>> {
+        let meta_data = Self::_make_meta_native(branch_coverage);
+
         let meta = PyDict::new(py);
-        meta.set_item("software", "covers")?;
-        meta.set_item("version", VERSION)?;
-        meta.set_item("timestamp", timestamp)?;
-        meta.set_item("branch_coverage", branch_coverage)?;
-        meta.set_item("show_contexts", false)?;
+        meta.set_item("software", meta_data.software)?;
+        meta.set_item("version", meta_data.version)?;
+        meta.set_item("timestamp", meta_data.timestamp)?;
+        meta.set_item("branch_coverage", meta_data.branch_coverage)?;
+        meta.set_item("show_contexts", meta_data.show_contexts)?;
 
         Ok(meta.into())
     }
