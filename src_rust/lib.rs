@@ -6,24 +6,24 @@ use pyo3::prelude::*;
 // Module declarations
 mod branch;
 mod branch_analysis;
-mod schemas;
-mod path;
 mod code_analysis;
-mod tracker;
-mod reporting;
 mod covers;
-mod xmlreport;
 mod lcovreport;
+mod path;
+mod reporting;
+mod schemas;
+mod tracker;
+mod xmlreport;
 
 // Re-export main types and functions for the Python module
-use branch::{is_branch, encode_branch, decode_branch, analyze_branches_ts};
-use code_analysis::{lines_from_code, branches_from_code};
+use branch::{analyze_branches_ts, decode_branch, encode_branch, is_branch};
+use code_analysis::{branches_from_code, lines_from_code};
+use covers::{Covers, VERSION};
+use lcovreport::print_lcov;
+use path::PathSimplifier;
 use reporting::{add_summaries, print_coverage};
 use tracker::CoverageTracker;
-use path::PathSimplifier;
-use covers::{Covers, VERSION};
 use xmlreport::print_xml;
-use lcovreport::print_lcov;
 
 /// Module definition
 #[pymodule]

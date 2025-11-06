@@ -1,6 +1,6 @@
+use ahash::AHashMap;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use ahash::AHashMap;
 use std::io::Write;
 use std::path::Path;
 
@@ -17,11 +17,21 @@ struct FileInfo {
 /// Sort strings the way humans expect (natural sorting)
 fn human_sorted(mut strings: Vec<String>) -> Vec<String> {
     strings.sort_by(|a, b| {
-        let a_parts: Vec<_> = a.split(|c: char| !c.is_alphanumeric())
-            .map(|s| s.parse::<i64>().map(|n| (false, n, String::new())).unwrap_or((true, 0, s.to_string())))
+        let a_parts: Vec<_> = a
+            .split(|c: char| !c.is_alphanumeric())
+            .map(|s| {
+                s.parse::<i64>()
+                    .map(|n| (false, n, String::new()))
+                    .unwrap_or((true, 0, s.to_string()))
+            })
             .collect();
-        let b_parts: Vec<_> = b.split(|c: char| !c.is_alphanumeric())
-            .map(|s| s.parse::<i64>().map(|n| (false, n, String::new())).unwrap_or((true, 0, s.to_string())))
+        let b_parts: Vec<_> = b
+            .split(|c: char| !c.is_alphanumeric())
+            .map(|s| {
+                s.parse::<i64>()
+                    .map(|n| (false, n, String::new()))
+                    .unwrap_or((true, 0, s.to_string()))
+            })
             .collect();
         a_parts.cmp(&b_parts)
     });
@@ -53,14 +63,16 @@ fn get_branch_data_by_line(
 
     // Add executed branches
     for &(from_line, to_line) in executed_branches {
-        branch_map.entry(from_line)
+        branch_map
+            .entry(from_line)
             .or_default()
             .push((from_line, to_line, true));
     }
 
     // Add missing branches
     for &(from_line, to_line) in missing_branches {
-        branch_map.entry(from_line)
+        branch_map
+            .entry(from_line)
             .or_default()
             .push((from_line, to_line, false));
     }
@@ -100,27 +112,33 @@ pub fn print_lcov(
     outfile: Option<Py<PyAny>>,
 ) -> PyResult<()> {
     // Parse coverage data
-    let files_dict = coverage
-        .get_item("files")?
-        .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("'files' key not found in coverage"))?;
-    let files_dict: &Bound<'_, PyDict> = files_dict.cast()
+    let files_dict = coverage.get_item("files")?.ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyKeyError, _>("'files' key not found in coverage")
+    })?;
+    let files_dict: &Bound<'_, PyDict> = files_dict
+        .cast()
         .map_err(|_| PyErr::new::<pyo3::exceptions::PyTypeError, _>("'files' must be a dict"))?;
 
     let mut file_infos: Vec<FileInfo> = Vec::new();
 
     for (file_path_obj, file_data_obj) in files_dict.iter() {
         let file_path: String = file_path_obj.extract()?;
-        let file_data: &Bound<'_, PyDict> = file_data_obj.cast()
-            .map_err(|_| PyErr::new::<pyo3::exceptions::PyTypeError, _>("file data must be a dict"))?;
+        let file_data: &Bound<'_, PyDict> = file_data_obj.cast().map_err(|_| {
+            PyErr::new::<pyo3::exceptions::PyTypeError, _>("file data must be a dict")
+        })?;
 
         let executed_lines: Vec<i32> = file_data
             .get_item("executed_lines")?
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("'executed_lines' not found"))?
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>("'executed_lines' not found")
+            })?
             .extract()?;
 
         let missing_lines: Vec<i32> = file_data
             .get_item("missing_lines")?
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("'missing_lines' not found"))?
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>("'missing_lines' not found")
+            })?
             .extract()?;
 
         let (executed_branches, missing_branches) = if with_branches {
@@ -207,10 +225,8 @@ pub fn print_lcov(
 
         // Branch coverage (if enabled)
         if with_branches {
-            let branch_map = get_branch_data_by_line(
-                &file_info.executed_branches,
-                &file_info.missing_branches,
-            );
+            let branch_map =
+                get_branch_data_by_line(&file_info.executed_branches, &file_info.missing_branches);
 
             // Get sorted line numbers that have branches
             let mut branch_lines: Vec<i32> = branch_map.keys().copied().collect();
@@ -231,7 +247,8 @@ pub fn print_lcov(
                         output,
                         "BRDA:{},{},{},{}",
                         line_num, block_num, branch_num, taken_str
-                    ).unwrap();
+                    )
+                    .unwrap();
 
                     branches_found += 1;
                     if *taken {

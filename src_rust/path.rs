@@ -14,8 +14,9 @@ pub struct PathSimplifier {
 impl PathSimplifier {
     #[new]
     pub fn new() -> PyResult<Self> {
-        let cwd = dunce::canonicalize(std::env::current_dir()?)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to get cwd: {}", e)))?;
+        let cwd = dunce::canonicalize(std::env::current_dir()?).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyOSError, _>(format!("Failed to get cwd: {}", e))
+        })?;
         Ok(PathSimplifier { cwd })
     }
 

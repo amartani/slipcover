@@ -1,12 +1,12 @@
 // Coverage tracking functionality
 // Based on the original Python covers.py module (CoverageTracker part)
 
+use crate::branch::{decode_branch, is_branch};
+use crate::schemas::{FileCoverageData, LineOrBranch};
+use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList, PySet, PyTuple};
 use std::sync::{Arc, Mutex};
-use ahash::{AHashMap, AHashSet};
-use crate::schemas::{LineOrBranch, FileCoverageData};
-use crate::branch::{is_branch, decode_branch};
 
 /// Core coverage tracking structure
 /// This is the performance-critical data structure that tracks which lines/branches have been executed
@@ -135,7 +135,10 @@ impl CoverageTracker {
         for (filename, file_data) in files_data {
             let file_dict = PyDict::new(py);
 
-            file_dict.set_item("executed_lines", PyList::new(py, &file_data.executed_lines)?)?;
+            file_dict.set_item(
+                "executed_lines",
+                PyList::new(py, &file_data.executed_lines)?,
+            )?;
             file_dict.set_item("missing_lines", PyList::new(py, &file_data.missing_lines)?)?;
 
             if with_branches {
@@ -184,7 +187,10 @@ impl CoverageTracker {
 // Internal methods for CoverageTracker (not exposed to Python)
 impl CoverageTracker {
     /// Get coverage data for all files (native Rust structures)
-    pub fn get_coverage_data_native(&self, with_branches: bool) -> AHashMap<String, FileCoverageData> {
+    pub fn get_coverage_data_native(
+        &self,
+        with_branches: bool,
+    ) -> AHashMap<String, FileCoverageData> {
         let inner = self.inner.lock().unwrap();
         let mut files_data: AHashMap<String, FileCoverageData> = AHashMap::new();
 
@@ -225,7 +231,8 @@ impl CoverageTracker {
             let (executed_branches, missing_branches) = if with_branches {
                 let code_branches = inner.code_branches.get(filename);
 
-                let mut executed_branches: Vec<(i32, i32)> = branches_seen.iter().copied().collect();
+                let mut executed_branches: Vec<(i32, i32)> =
+                    branches_seen.iter().copied().collect();
                 executed_branches.sort_unstable();
 
                 let mut missing_branches: Vec<(i32, i32)> = if let Some(cb) = code_branches {

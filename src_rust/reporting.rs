@@ -1,12 +1,12 @@
 // Coverage reporting functionality
 // Based on the original Python covers.py module (reporting part)
 
+use crate::schemas::{FileCoverageData, FileSummary};
+use ahash::AHashMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyModule};
 use std::collections::HashSet;
-use ahash::AHashMap;
 use tabled::{Table, Tabled, settings::Style};
-use crate::schemas::{FileCoverageData, FileSummary};
 
 /// Format missing lines and branches as a string
 pub fn format_missing(
@@ -160,7 +160,10 @@ pub fn print_coverage(
 
             let summary = f_info.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
-            let pct: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let pct: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             if skip_covered && (pct - 100.0).abs() < 0.01 {
                 continue;
@@ -208,11 +211,22 @@ pub fn print_coverage(
             let summary = coverage.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
 
-            let s_covered_lines: i32 = summary_dict.get_item("covered_lines")?.unwrap().extract()?;
-            let s_missing_lines: i32 = summary_dict.get_item("missing_lines")?.unwrap().extract()?;
-            let s_covered_branches: i32 = summary_dict.get_item("covered_branches")?.unwrap().extract()?;
-            let s_missing_branches: i32 = summary_dict.get_item("missing_branches")?.unwrap().extract()?;
-            let s_percent: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let s_covered_lines: i32 =
+                summary_dict.get_item("covered_lines")?.unwrap().extract()?;
+            let s_missing_lines: i32 =
+                summary_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let s_covered_branches: i32 = summary_dict
+                .get_item("covered_branches")?
+                .unwrap()
+                .extract()?;
+            let s_missing_branches: i32 = summary_dict
+                .get_item("missing_branches")?
+                .unwrap()
+                .extract()?;
+            let s_percent: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             let total_b = s_covered_branches + s_missing_branches;
             let pct_b = if total_b > 0 {
@@ -262,7 +276,10 @@ pub fn print_coverage(
 
             let summary = f_info.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
-            let pct: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let pct: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             if skip_covered && (pct - 100.0).abs() < 0.01 {
                 continue;
@@ -302,9 +319,14 @@ pub fn print_coverage(
             let summary = coverage.get_item("summary")?.unwrap();
             let summary_dict: &Bound<PyDict> = summary.cast()?;
 
-            let s_covered_lines: i32 = summary_dict.get_item("covered_lines")?.unwrap().extract()?;
-            let s_missing_lines: i32 = summary_dict.get_item("missing_lines")?.unwrap().extract()?;
-            let s_percent: f64 = summary_dict.get_item("percent_covered")?.unwrap().extract()?;
+            let s_covered_lines: i32 =
+                summary_dict.get_item("covered_lines")?.unwrap().extract()?;
+            let s_missing_lines: i32 =
+                summary_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let s_percent: f64 = summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?;
 
             rows.push(SimpleCoverageRow {
                 file: "---".to_string(),
@@ -378,7 +400,11 @@ pub fn add_summaries_native(
             (None, None)
         };
 
-        let percent_covered = if den == 0 { 100.0 } else { 100.0 * nom as f64 / den as f64 };
+        let percent_covered = if den == 0 {
+            100.0
+        } else {
+            100.0 * nom as f64 / den as f64
+        };
 
         file_summaries.insert(
             filename.clone(),
@@ -412,13 +438,25 @@ pub fn add_summaries_native(
     } else {
         g_covered_lines + g_missing_lines
     };
-    let g_percent_covered = if g_den == 0 { 100.0 } else { 100.0 * g_nom as f64 / g_den as f64 };
+    let g_percent_covered = if g_den == 0 {
+        100.0
+    } else {
+        100.0 * g_nom as f64 / g_den as f64
+    };
 
     let global_summary = FileSummary {
         covered_lines: g_covered_lines,
         missing_lines: g_missing_lines,
-        covered_branches: if with_branches { Some(g_covered_branches) } else { None },
-        missing_branches: if with_branches { Some(g_missing_branches) } else { None },
+        covered_branches: if with_branches {
+            Some(g_covered_branches)
+        } else {
+            None
+        },
+        missing_branches: if with_branches {
+            Some(g_missing_branches)
+        } else {
+            None
+        },
         percent_covered: g_percent_covered,
     };
 
@@ -468,20 +506,32 @@ pub fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
                 den += covered_branches + missing_branches_count;
 
                 // Update global summary for branches
-                *g_summary_data.entry("covered_branches".to_string()).or_insert(0) += covered_branches;
-                *g_summary_data.entry("missing_branches".to_string()).or_insert(0) += missing_branches_count;
+                *g_summary_data
+                    .entry("covered_branches".to_string())
+                    .or_insert(0) += covered_branches;
+                *g_summary_data
+                    .entry("missing_branches".to_string())
+                    .or_insert(0) += missing_branches_count;
             }
 
             // Calculate percent covered
-            let percent_covered = if den == 0 { 100.0 } else { 100.0 * nom as f64 / den as f64 };
+            let percent_covered = if den == 0 {
+                100.0
+            } else {
+                100.0 * nom as f64 / den as f64
+            };
             summary.set_item("percent_covered", percent_covered)?;
 
             // Set summary on file
             f_cov.set_item("summary", summary)?;
 
             // Update global summary for lines
-            *g_summary_data.entry("covered_lines".to_string()).or_insert(0) += covered_lines;
-            *g_summary_data.entry("missing_lines".to_string()).or_insert(0) += missing_lines_count;
+            *g_summary_data
+                .entry("covered_lines".to_string())
+                .or_insert(0) += covered_lines;
+            *g_summary_data
+                .entry("missing_lines".to_string())
+                .or_insert(0) += missing_lines_count;
 
             g_nom += nom;
             g_den += den;
@@ -494,9 +544,16 @@ pub fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
         g_summary.set_item(k, v)?;
     }
 
-    let g_percent_covered = if g_den == 0 { 100.0 } else { 100.0 * g_nom as f64 / g_den as f64 };
+    let g_percent_covered = if g_den == 0 {
+        100.0
+    } else {
+        100.0 * g_nom as f64 / g_den as f64
+    };
     g_summary.set_item("percent_covered", g_percent_covered)?;
-    g_summary.set_item("percent_covered_display", format!("{}", g_percent_covered.round() as i32))?;
+    g_summary.set_item(
+        "percent_covered_display",
+        format!("{}", g_percent_covered.round() as i32),
+    )?;
 
     cov.set_item("summary", g_summary)?;
 

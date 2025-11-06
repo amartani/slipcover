@@ -1,11 +1,11 @@
 // Branch encoding and decoding functionality
 // Based on the original Python branch.py module
 
-use pyo3::prelude::*;
-use pyo3::exceptions::PyAssertionError;
-use pyo3::types::{PyDict, PyList, PyTuple};
-use ahash::AHashMap;
 use crate::branch_analysis::analyze_branches;
+use ahash::AHashMap;
+use pyo3::exceptions::PyAssertionError;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList, PyTuple};
 
 // Branch encoding constants
 pub const BRANCH_MARKER: i32 = 1 << 30;
@@ -48,8 +48,8 @@ pub fn decode_branch(line: i32) -> (i32, i32) {
 /// Analyze Python source code to find branch points using tree-sitter
 #[pyfunction]
 pub fn analyze_branches_ts(py: Python, source: String) -> PyResult<Py<PyDict>> {
-    let branch_info_list = analyze_branches(&source)
-        .map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
+    let branch_info_list =
+        analyze_branches(&source).map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
 
     // Build a native Rust structure first
     let mut branches_map: AHashMap<usize, Vec<(usize, usize)>> = AHashMap::new();

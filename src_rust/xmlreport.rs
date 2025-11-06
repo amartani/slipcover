@@ -1,12 +1,13 @@
+use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use ahash::{AHashMap, AHashSet};
-use std::io::Write;
-use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::Writer;
+use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use std::collections::BTreeMap;
+use std::io::Write;
 
-const DTD_URL: &str = "https://raw.githubusercontent.com/cobertura/web/master/htdocs/xml/coverage-04.dtd";
+const DTD_URL: &str =
+    "https://raw.githubusercontent.com/cobertura/web/master/htdocs/xml/coverage-04.dtd";
 const VERSION: &str = "1.0.17";
 
 /// Human-friendly sorting key for strings with numbers
@@ -159,23 +160,28 @@ fn write_file_xml<W: Write>(
         // Fallback: compute relative path from cwd
         let full_path = std::path::Path::new(&file_info.file_path);
         let cwd = std::env::current_dir().map_err(|e| format!("Failed to get cwd: {}", e))?;
-        let relative = full_path.strip_prefix(&cwd)
+        let relative = full_path
+            .strip_prefix(&cwd)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| file_info.file_path.clone());
 
         // Calculate the source path
-        let full = dunce::canonicalize(full_path)
-            .unwrap_or_else(|_| full_path.to_path_buf());
+        let full = dunce::canonicalize(full_path).unwrap_or_else(|_| full_path.to_path_buf());
         let full_str = full.to_string_lossy().to_string();
         if full_str.len() > relative.len() {
-            new_source_path = Some(full_str[..full_str.len() - relative.len()].trim_end_matches(['/', '\\']).to_string());
+            new_source_path = Some(
+                full_str[..full_str.len() - relative.len()]
+                    .trim_end_matches(['/', '\\'])
+                    .to_string(),
+            );
         }
 
         relative
     };
 
     let dirname = {
-        let d = std::path::Path::new(&rel_name).parent()
+        let d = std::path::Path::new(&rel_name)
+            .parent()
             .and_then(|p| p.to_str())
             .unwrap_or(".");
         if d.is_empty() {
@@ -201,7 +207,11 @@ fn write_file_xml<W: Write>(
     };
 
     let branch_stats = if with_branches {
-        get_branch_stats(&file_info.executed_branches, &file_info.missing_branches, &missing_branch_arcs)
+        get_branch_stats(
+            &file_info.executed_branches,
+            &file_info.missing_branches,
+            &missing_branch_arcs,
+        )
     } else {
         AHashMap::new()
     };
@@ -245,18 +255,31 @@ fn write_file_xml<W: Write>(
     class_elem.push_attribute(("branch-rate", branch_rate.as_str()));
     class_elem.push_attribute(("complexity", "0"));
 
-    writer.write_event(Event::Start(class_elem.borrow())).map_err(|e| e.to_string())?;
+    writer
+        .write_event(Event::Start(class_elem.borrow()))
+        .map_err(|e| e.to_string())?;
 
     // Write empty methods element
-    writer.write_event(Event::Empty(BytesStart::new("methods"))).map_err(|e| e.to_string())?;
+    writer
+        .write_event(Event::Empty(BytesStart::new("methods")))
+        .map_err(|e| e.to_string())?;
 
     // Write lines
-    writer.write_event(Event::Start(BytesStart::new("lines"))).map_err(|e| e.to_string())?;
+    writer
+        .write_event(Event::Start(BytesStart::new("lines")))
+        .map_err(|e| e.to_string())?;
 
     for line in all_lines {
         let mut line_elem = BytesStart::new("line");
         line_elem.push_attribute(("number", line.to_string().as_str()));
-        line_elem.push_attribute(("hits", if missing_set.contains(&line) { "0" } else { "1" }));
+        line_elem.push_attribute((
+            "hits",
+            if missing_set.contains(&line) {
+                "0"
+            } else {
+                "1"
+            },
+        ));
 
         if with_branches {
             if let Some((total, taken)) = branch_stats.get(&line) {
@@ -266,18 +289,31 @@ fn write_file_xml<W: Write>(
             }
 
             if let Some(missing_arcs) = missing_branch_arcs.get(&line) {
-                let annlines: Vec<String> = missing_arcs.iter()
-                    .map(|b| if *b <= 0 { "exit".to_string() } else { b.to_string() })
+                let annlines: Vec<String> = missing_arcs
+                    .iter()
+                    .map(|b| {
+                        if *b <= 0 {
+                            "exit".to_string()
+                        } else {
+                            b.to_string()
+                        }
+                    })
                     .collect();
                 line_elem.push_attribute(("missing-branches", annlines.join(",").as_str()));
             }
         }
 
-        writer.write_event(Event::Empty(line_elem)).map_err(|e| e.to_string())?;
+        writer
+            .write_event(Event::Empty(line_elem))
+            .map_err(|e| e.to_string())?;
     }
 
-    writer.write_event(Event::End(BytesEnd::new("lines"))).map_err(|e| e.to_string())?;
-    writer.write_event(Event::End(BytesEnd::new("class"))).map_err(|e| e.to_string())?;
+    writer
+        .write_event(Event::End(BytesEnd::new("lines")))
+        .map_err(|e| e.to_string())?;
+    writer
+        .write_event(Event::End(BytesEnd::new("class")))
+        .map_err(|e| e.to_string())?;
 
     Ok((
         package_name,
@@ -309,10 +345,14 @@ pub fn print_xml(
     }
 
     // Get files from coverage
-    let files = coverage.get_item("files")
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Missing 'files' key: {}", e)))?
+    let files = coverage
+        .get_item("files")
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Missing 'files' key: {}", e))
+        })?
         .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'files' key"))?;
-    let files_dict: &Bound<PyDict> = files.cast()
+    let files_dict: &Bound<PyDict> = files
+        .cast()
         .map_err(|_| PyErr::new::<pyo3::exceptions::PyTypeError, _>("'files' must be a dict"))?;
 
     // Process each file and collect into packages
@@ -320,22 +360,31 @@ pub fn print_xml(
 
     for (file_path_obj, file_data_obj) in files_dict.iter() {
         let file_path: String = file_path_obj.extract()?;
-        let file_data: &Bound<PyDict> = file_data_obj.cast()
-            .map_err(|_| PyErr::new::<pyo3::exceptions::PyTypeError, _>("File data must be a dict"))?;
+        let file_data: &Bound<PyDict> = file_data_obj.cast().map_err(|_| {
+            PyErr::new::<pyo3::exceptions::PyTypeError, _>("File data must be a dict")
+        })?;
 
         // Extract data
-        let executed_lines: Vec<i32> = file_data.get_item("executed_lines")?
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'executed_lines'"))?
+        let executed_lines: Vec<i32> = file_data
+            .get_item("executed_lines")?
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'executed_lines'")
+            })?
             .extract()?;
-        let missing_lines: Vec<i32> = file_data.get_item("missing_lines")?
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'missing_lines'"))?
+        let missing_lines: Vec<i32> = file_data
+            .get_item("missing_lines")?
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'missing_lines'")
+            })?
             .extract()?;
 
         let (executed_branches, missing_branches) = if with_branches {
-            let eb_list = file_data.get_item("executed_branches")?
-                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'executed_branches'"))?;
-            let mb_list = file_data.get_item("missing_branches")?
-                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'missing_branches'"))?;
+            let eb_list = file_data.get_item("executed_branches")?.ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'executed_branches'")
+            })?;
+            let mb_list = file_data.get_item("missing_branches")?.ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'missing_branches'")
+            })?;
 
             let eb: Vec<Vec<i32>> = eb_list.extract()?;
             let mb: Vec<Vec<i32>> = mb_list.extract()?;
@@ -372,16 +421,23 @@ pub fn print_xml(
             rn
         } else {
             let full_path = std::path::Path::new(&file_info.file_path);
-            let cwd = std::env::current_dir()
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to get cwd: {}", e)))?;
-            let relative = full_path.strip_prefix(&cwd)
+            let cwd = std::env::current_dir().map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Failed to get cwd: {}",
+                    e
+                ))
+            })?;
+            let relative = full_path
+                .strip_prefix(&cwd)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file_info.file_path.clone());
 
             let full = dunce::canonicalize(full_path).unwrap_or_else(|_| full_path.to_path_buf());
             let full_str = full.to_string_lossy().to_string();
             if full_str.len() > relative.len() {
-                let new_source = full_str[..full_str.len() - relative.len()].trim_end_matches(['/', '\\']).to_string();
+                let new_source = full_str[..full_str.len() - relative.len()]
+                    .trim_end_matches(['/', '\\'])
+                    .to_string();
                 source_paths_set.insert(new_source);
             }
 
@@ -389,7 +445,8 @@ pub fn print_xml(
         };
 
         let dirname = {
-            let d = std::path::Path::new(&rel_name).parent()
+            let d = std::path::Path::new(&rel_name)
+                .parent()
                 .and_then(|p| p.to_str())
                 .unwrap_or(".");
             if d.is_empty() {
@@ -419,7 +476,11 @@ pub fn print_xml(
 
         let (class_branches, class_br_hits) = if with_branches {
             let missing_branch_arcs = get_missing_branch_arcs(&file_info.missing_branches);
-            let branch_stats = get_branch_stats(&file_info.executed_branches, &file_info.missing_branches, &missing_branch_arcs);
+            let branch_stats = get_branch_stats(
+                &file_info.executed_branches,
+                &file_info.missing_branches,
+                &missing_branch_arcs,
+            );
             let branches = branch_stats.values().map(|(t, _)| t).sum::<i32>();
             let missing = branch_stats.values().map(|(t, k)| t - k).sum::<i32>();
             (branches, branches - missing)
@@ -427,7 +488,9 @@ pub fn print_xml(
             (0, 0)
         };
 
-        let package = packages.entry(package_name).or_insert_with(PackageData::new);
+        let package = packages
+            .entry(package_name)
+            .or_insert_with(PackageData::new);
         package.file_infos.push(file_info);
         package.hits += class_hits;
         package.lines += class_lines;
@@ -490,39 +553,54 @@ pub fn print_xml(
     }
     coverage_elem.push_attribute(("complexity", "0"));
 
-    writer.write_event(Event::Start(coverage_elem.borrow()))
+    writer
+        .write_event(Event::Start(coverage_elem.borrow()))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     // Comments
-    writer.write_event(Event::Comment(BytesText::new(" Generated by covers ")))
+    writer
+        .write_event(Event::Comment(BytesText::new(" Generated by covers ")))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-    writer.write_event(Event::Comment(BytesText::new(&format!(" Based on {} ", DTD_URL))))
+    writer
+        .write_event(Event::Comment(BytesText::new(&format!(
+            " Based on {} ",
+            DTD_URL
+        ))))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     // Sources
-    writer.write_event(Event::Start(BytesStart::new("sources")))
+    writer
+        .write_event(Event::Start(BytesStart::new("sources")))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     let sorted_sources = human_sorted(&source_paths_set.iter().cloned().collect::<Vec<_>>());
     for path in sorted_sources {
-        writer.write_event(Event::Start(BytesStart::new("source")))
+        writer
+            .write_event(Event::Start(BytesStart::new("source")))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        writer.write_event(Event::Text(BytesText::new(&path)))
+        writer
+            .write_event(Event::Text(BytesText::new(&path)))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        writer.write_event(Event::End(BytesEnd::new("source")))
+        writer
+            .write_event(Event::End(BytesEnd::new("source")))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     }
 
-    writer.write_event(Event::End(BytesEnd::new("sources")))
+    writer
+        .write_event(Event::End(BytesEnd::new("sources")))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     // Packages
-    writer.write_event(Event::Start(BytesStart::new("packages")))
+    writer
+        .write_event(Event::Start(BytesStart::new("packages")))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     for (pkg_name, pkg_data) in packages.iter() {
         let mut package_elem = BytesStart::new("package");
-        package_elem.push_attribute(("name", pkg_name.replace(std::path::MAIN_SEPARATOR, ".").as_str()));
+        package_elem.push_attribute((
+            "name",
+            pkg_name.replace(std::path::MAIN_SEPARATOR, ".").as_str(),
+        ));
         package_elem.push_attribute(("line-rate", rate(pkg_data.hits, pkg_data.lines).as_str()));
         let branch_rate = if with_branches {
             rate(pkg_data.br_hits, pkg_data.branches)
@@ -532,31 +610,51 @@ pub fn print_xml(
         package_elem.push_attribute(("branch-rate", branch_rate.as_str()));
         package_elem.push_attribute(("complexity", "0"));
 
-        writer.write_event(Event::Start(package_elem.borrow()))
+        writer
+            .write_event(Event::Start(package_elem.borrow()))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-        writer.write_event(Event::Start(BytesStart::new("classes")))
+        writer
+            .write_event(Event::Start(BytesStart::new("classes")))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
         // Sort files by name
-        let file_paths: Vec<String> = pkg_data.file_infos.iter().map(|fi| fi.file_path.clone()).collect();
+        let file_paths: Vec<String> = pkg_data
+            .file_infos
+            .iter()
+            .map(|fi| fi.file_path.clone())
+            .collect();
         let sorted_paths = human_sorted(&file_paths);
 
         for file_path in sorted_paths {
-            let file_info = pkg_data.file_infos.iter().find(|fi| fi.file_path == file_path).unwrap();
-            write_file_xml(&mut writer, file_info, &source_paths_set, xml_package_depth, with_branches)
-                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)?;
+            let file_info = pkg_data
+                .file_infos
+                .iter()
+                .find(|fi| fi.file_path == file_path)
+                .unwrap();
+            write_file_xml(
+                &mut writer,
+                file_info,
+                &source_paths_set,
+                xml_package_depth,
+                with_branches,
+            )
+            .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)?;
         }
 
-        writer.write_event(Event::End(BytesEnd::new("classes")))
+        writer
+            .write_event(Event::End(BytesEnd::new("classes")))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        writer.write_event(Event::End(BytesEnd::new("package")))
+        writer
+            .write_event(Event::End(BytesEnd::new("package")))
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     }
 
-    writer.write_event(Event::End(BytesEnd::new("packages")))
+    writer
+        .write_event(Event::End(BytesEnd::new("packages")))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-    writer.write_event(Event::End(BytesEnd::new("coverage")))
+    writer
+        .write_event(Event::End(BytesEnd::new("coverage")))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     let body_str = String::from_utf8(buffer)

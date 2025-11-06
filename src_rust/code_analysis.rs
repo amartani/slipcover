@@ -1,9 +1,9 @@
 // Code object analysis - extracting lines and branches
 // Based on the original Python bytecode.py module
 
+use crate::branch::is_branch;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyModule, PyTuple};
-use crate::branch::is_branch;
 
 /// Extract line numbers from a code object (non-branch lines)
 #[pyfunction]
@@ -47,11 +47,12 @@ pub fn lines_from_code(py: Python, co: &Bound<PyAny>) -> PyResult<Vec<i32>> {
         let line: i32 = line_obj.extract()?;
 
         // Filter out None lines, RESUME, and RETURN_GENERATOR
-        if line != 0 &&
-           off < co_code_bytes.len() &&
-           co_code_bytes[off] != op_resume &&
-           co_code_bytes[off] != op_return_generator &&
-           !is_branch(line) {
+        if line != 0
+            && off < co_code_bytes.len()
+            && co_code_bytes[off] != op_resume
+            && co_code_bytes[off] != op_return_generator
+            && !is_branch(line)
+        {
             lines.push(line);
         }
     }
