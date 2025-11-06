@@ -117,6 +117,13 @@ def merge_files(args, base_path):
                     xml_package_depth=args.xml_package_depth,
                     outfile=jf,
                 )
+            elif args.lcov:
+                sc.print_lcov(
+                    merged,
+                    source_paths=[str(base_path)],
+                    with_branches=args.branch,
+                    outfile=jf,
+                )
             else:
                 json.dump(merged, jf, indent=(4 if args.pretty_print else None))
 
@@ -160,6 +167,7 @@ def main():
         "--pretty-print", action="store_true", help="pretty-print JSON output"
     )
     ap.add_argument("--xml", action="store_true", help="select XML output")
+    ap.add_argument("--lcov", action="store_true", help="select LCOV output")
     ap.add_argument(
         "--xml-package-depth",
         type=int,
@@ -289,6 +297,13 @@ def main():
                     source_paths=[str(base_path)],
                     with_branches=args.branch,
                     xml_package_depth=args.xml_package_depth,
+                    outfile=outfile,
+                )
+            elif args.lcov:
+                sc.print_lcov(
+                    coverage,
+                    source_paths=[str(base_path)],
+                    with_branches=args.branch,
                     outfile=outfile,
                 )
             else:

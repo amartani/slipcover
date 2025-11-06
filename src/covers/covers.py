@@ -17,6 +17,7 @@ from .covers_core import (  # noqa: F401
     lines_from_code,
     print_coverage,
     print_xml,
+    print_lcov,
     __version__,
 )
 
