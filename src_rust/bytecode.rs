@@ -95,7 +95,9 @@ where
 pub struct Opcodes {
     pub extended_arg: u8,
     pub load_const: u8,
+    #[allow(dead_code)] // Reserved for potential future use
     pub load_global: u8,
+    #[allow(dead_code)] // Reserved for potential future use
     pub resume: u8,
     pub push_null: u8,
     pub precall: u8,
@@ -107,8 +109,11 @@ pub struct Opcodes {
     pub store_name: u8,
     pub store_global: u8,
     pub inline_cache_entries: Py<PyDict>,
+    #[allow(dead_code)] // Reserved for potential future use
     pub hasjrel: HashSet<u8>,
+    #[allow(dead_code)] // Reserved for potential future use
     pub hasjabs: HashSet<u8>,
+    #[allow(dead_code)] // Reserved for potential future use
     pub opname: Py<PyList>,
 }
 
@@ -676,15 +681,16 @@ impl Editor {
     /// Sets a constant
     fn set_const(&mut self, py: Python, index: usize, value: Py<PyAny>) -> PyResult<()> {
         if self.consts.is_none() {
-            let co_consts_bound = self.orig_code.bind(py).getattr("co_consts")?;
-            let co_consts = co_consts_bound.downcast_into::<PyTuple>()?;
-            self.consts = Some(co_consts.iter().map(|x| x.unbind()).collect());
+            let co_consts = self.orig_code.bind(py).getattr("co_consts")?;
+            let co_consts_tuple: &pyo3::Bound<PyTuple> = co_consts.cast()?;
+            self.consts = Some(co_consts_tuple.iter().map(|x| x.unbind()).collect());
         }
 
         if let Some(ref mut consts) = self.consts
-            && index < consts.len() {
-                consts[index] = value;
-            }
+            && index < consts.len()
+        {
+            consts[index] = value;
+        }
 
         Ok(())
     }
@@ -692,9 +698,9 @@ impl Editor {
     /// Adds a constant
     fn add_const(&mut self, py: Python, value: Py<PyAny>) -> PyResult<usize> {
         if self.consts.is_none() {
-            let co_consts_bound = self.orig_code.bind(py).getattr("co_consts")?;
-            let co_consts = co_consts_bound.downcast_into::<PyTuple>()?;
-            self.consts = Some(co_consts.iter().map(|x| x.unbind()).collect());
+            let co_consts = self.orig_code.bind(py).getattr("co_consts")?;
+            let co_consts_tuple: &pyo3::Bound<PyTuple> = co_consts.cast()?;
+            self.consts = Some(co_consts_tuple.iter().map(|x| x.unbind()).collect());
         }
 
         if let Some(ref mut consts) = self.consts {
@@ -734,15 +740,14 @@ impl Editor {
         }
 
         let opcodes = Opcodes::new(py)?;
-        let mut insert = Vec::new();
-
-        // NOP for disabling
-        insert.push(opcodes.nop);
-        insert.push(0);
-
-        // PUSH_NULL
-        insert.push(opcodes.push_null);
-        insert.push(0);
+        let mut insert = vec![
+            // NOP for disabling
+            opcodes.nop,
+            0,
+            // PUSH_NULL
+            opcodes.push_null,
+            0,
+        ];
 
         // LOAD_CONST for function
         insert.extend(opcode_arg(py, &opcodes, opcodes.load_const, function, 0)?);
@@ -771,8 +776,7 @@ impl Editor {
         )?);
 
         // POP_TOP (ignore return)
-        insert.push(opcodes.pop_top);
-        insert.push(0);
+        insert.extend([opcodes.pop_top, 0]);
 
         let len_insert = insert.len() as i32;
         if len_insert < repl_length {
@@ -835,7 +839,7 @@ impl Editor {
         let co_code_attr = self.orig_code.bind(py).getattr("co_code")?;
         let co_code = co_code_attr.extract::<&[u8]>()?;
         let co_names_bound = self.orig_code.bind(py).getattr("co_names")?;
-        let co_names = co_names_bound.downcast_into::<PyTuple>()?;
+        let co_names: &pyo3::Bound<PyTuple> = co_names_bound.cast()?;
 
         let start = start.unwrap_or(0) as usize;
         let end = end.unwrap_or(co_code.len() as i32) as usize;
