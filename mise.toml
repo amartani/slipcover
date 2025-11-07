@@ -49,3 +49,11 @@ run = "mise run test_py312 ${usage_files} ::: test_py313 ${usage_files} ::: test
 [tasks.build]
 description = "Builds the project (in development mode)"
 run = "uv build"
+
+[tasks.benchmark]
+description = "Run benchmarks"
+run = """
+python benchmarks/benchmarks.py run \
+  --case base \
+  --omit-bench sklearn flask
+"""
