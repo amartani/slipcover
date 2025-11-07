@@ -57,8 +57,8 @@ run = [
   "rm -f coverage_py.lcov coverage_rust.lcov coverage.lcov",
   # Install cargo-llvm-cov if not present
   "cargo install cargo-llvm-cov --quiet 2>/dev/null || true",
-  # Run Python coverage using pytest-cov with editable install (continue even if tests fail)
-  "uv run --with pytest --with pytest-cov --with pytest-forked --with maturin pytest --cov=src --cov-report=lcov:coverage_py.lcov || true",
+  # Run Python coverage using covers itself with editable install (continue even if tests fail)
+  "uv run --with pytest --with pytest-forked python -m covers --lcov --out coverage_py.lcov -m pytest || true",
   # Run Rust coverage using cargo-llvm-cov
   "cargo llvm-cov --lcov --output-path coverage_rust.lcov",
   # Combine coverage files
