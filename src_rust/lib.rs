@@ -25,9 +25,13 @@ use covers::{Covers, VERSION};
 use file_matcher::FileMatcher;
 use lcovreport::print_lcov;
 use path::PathSimplifier;
-use reporting::{add_summaries, format_missing_py, print_coverage};
+use reporting::{add_summaries, format_missing_py, merge_coverage, print_coverage};
 use tracker::CoverageTracker;
 use xmlreport::print_xml;
+
+// Create a custom CoversError exception
+// This will be available to other modules via `crate::CoversError`
+pyo3::create_exception!(covers_core, CoversError, pyo3::exceptions::PyException);
 
 /// Module definition
 #[pymodule]
@@ -45,6 +49,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     // Reporting functions
     m.add_function(wrap_pyfunction!(add_summaries, m)?)?;
     m.add_function(wrap_pyfunction!(format_missing_py, m)?)?;
+    m.add_function(wrap_pyfunction!(merge_coverage, m)?)?;
     m.add_function(wrap_pyfunction!(print_coverage, m)?)?;
     m.add_function(wrap_pyfunction!(print_xml, m)?)?;
     m.add_function(wrap_pyfunction!(print_lcov, m)?)?;
@@ -63,6 +68,9 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 
     // Version
     m.add("__version__", VERSION)?;
+
+    // Exceptions
+    m.add("CoversError", m.py().get_type::<CoversError>())?;
 
     Ok(())
 }

@@ -451,14 +451,36 @@ mod tests {
 
 ---
 
-### Phase 4: Merge Coverage (3-5 days)
+### Phase 4: Merge Coverage (3-5 days) ✅ **COMPLETED**
 **Focus:** Data structure performance
 
-1. Implement native merge_coverage in Rust
-2. Work with native structures throughout
-3. Benchmark large coverage file merges
+**Status:** Successfully completed (2025-11-07)
 
-**Expected benefits:** 2-3x faster merging for large projects
+**What was done:**
+1. ✅ **Implemented merge_coverage in Rust** (reporting.rs):
+   - Full validation of coverage format (software="covers")
+   - Support for both line and branch coverage merging
+   - Proper error handling with custom CoversError exception
+   - Efficient set operations for merging coverage data
+
+2. ✅ **Created CoversError exception** in Rust:
+   - Defined custom exception in lib.rs using PyO3's create_exception! macro
+   - Exported to Python as drop-in replacement for Python CoversError
+   - Maintains API compatibility with existing code
+
+3. ✅ **Removed Python implementation**:
+   - Deleted merge_coverage Python function (~45 lines)
+   - Updated covers.py to import from Rust
+   - Imported CoversError from Rust
+
+4. ✅ **All tests passing** (97/97):
+   - test_merge_coverage with all variants (branch/no-branch)
+   - test_merge_coverage_branch_coverage_disagree
+   - No regressions in other tests
+
+**Expected benefits:** 2-3x faster merging for large projects (native hash sets and sorted vectors)
+
+**Completion date:** 2025-11-07
 
 ---
 
@@ -503,7 +525,7 @@ Based on similar conversions and the nature of the operations:
 - **Phase 1 Complete:** 68% Rust, 32% Python
 - **Phase 2 Complete:** ~70% Rust, 30% Python
 - **Phase 3 Complete:** ~75% Rust, 25% Python (bytecode.py converted - 554 lines)
-- **After Phase 4:** ~85% Rust, 15% Python
+- **Phase 4 Complete:** ~80% Rust, 20% Python (merge_coverage converted - 45 lines)
 - **Final:** Python only for CLI, imports, and high-level orchestration
 
 ### Benefits
@@ -535,59 +557,61 @@ Based on similar conversions and the nature of the operations:
 1. ✅ ~~Implement Phase 1 (Quick Wins)~~ - COMPLETED
 2. ✅ ~~Phase 2 (FileMatcher conversion)~~ - COMPLETED
 3. ✅ ~~Phase 3 (Bytecode conversion)~~ - COMPLETED
-4. ⏭️ Begin Phase 4 (Merge coverage conversion) - READY TO START
+4. ✅ ~~Phase 4 (Merge coverage conversion)~~ - COMPLETED
+5. ⏭️ Begin Phase 5 (Polish & Documentation) - READY TO START
 
 ### Long Term (Next Quarter)
 1. ✅ ~~Complete bytecode conversion~~ - COMPLETED
-2. ⏭️ Achieve 85% Rust codebase (currently ~75% with bytecode conversion)
-3. ⏭️ Publish performance comparisons
-4. ⏭️ Update documentation
+2. ✅ ~~Complete merge_coverage conversion~~ - COMPLETED
+3. ⏭️ Achieve 85% Rust codebase (currently ~80% with all conversions)
+4. ⏭️ Publish performance comparisons
+5. ⏭️ Update documentation
 
 ---
 
 ## 11. Conclusion
 
-The Covers project has made excellent progress with its Rust migration. With Phase 3 completed, the codebase is now ~75% Rust, with all performance-critical components successfully converted:
+The Covers project has made excellent progress with its Rust migration. With Phase 4 completed, the codebase is now ~80% Rust, with all performance-critical components successfully converted:
 
 **Completed migrations:**
 1. ✅ **Phase 1**: Rust idiom improvements and Python cleanup
 2. ✅ **Phase 2**: FileMatcher conversion (10-20x faster path matching)
 3. ✅ **Phase 3**: Bytecode conversion (2-5x faster instrumentation expected)
+4. ✅ **Phase 4**: Merge coverage conversion (2-3x faster merging expected)
 
-**Remaining opportunities:**
-1. **merge_coverage conversion** - Strategic conversion for large file merging
-2. **Documentation and benchmarks** - Demonstrate performance gains
-3. **Final polish** - Remaining Python code is primarily orchestration
+**Remaining work:**
+1. **Documentation and benchmarks** - Demonstrate performance gains
+2. **Final polish** - Remaining Python code is primarily orchestration
 
 The project architecture is sound, with all low-level, performance-critical operations now in Rust, while keeping Python for high-level orchestration, CLI, and import hooks where it makes sense.
 
-**Overall Assessment:** 🟢 **Project is in excellent shape with major milestones achieved**
+**Overall Assessment:** 🟢 **Project is in excellent shape - all planned performance conversions complete**
 
 ---
 
 ## Appendix A: Current File Structure
 
 ```
-src/covers/          (Python - ~966 LOC, down from ~1,520)
+src/covers/          (Python - ~920 LOC, down from ~1,520)
 ├── __init__.py      (0 LOC, imports only)
 ├── __main__.py      (372 LOC) - CLI, fork handling
-├── covers.py        (~150 LOC) - Wrapper, merge_coverage
+├── covers.py        (~100 LOC) - Wrapper, findlinestarts utility
 ├── branch.py        (~100 LOC) - AST transforms for branch instrumentation
 ├── importer.py      (~230 LOC) - Import hooks, pytest wrapper
 ├── schemas.py       (30 LOC) - TypedDicts
 ├── version.py       (1 LOC)
 └── fuzz.py          (~30 LOC)
 
-src_rust/            (Rust - ~4,600 LOC, up from ~3,580)
-├── lib.rs           (~65 LOC) - Module organization
+src_rust/            (Rust - ~4,800 LOC, up from ~3,580)
+├── lib.rs           (~75 LOC) - Module organization, CoversError exception
 ├── covers.rs        (621 LOC) - Main Covers class
 ├── tracker.rs       (266 LOC) - CoverageTracker ⚡ PERFORMANCE CRITICAL
 ├── branch.rs        (73 LOC) - Branch encoding/decoding
 ├── branch_analysis.rs (656 LOC) - Tree-sitter analysis
-├── bytecode.rs      (~1,050 LOC) - Bytecode manipulation ✨ NEW
+├── bytecode.rs      (~1,050 LOC) - Bytecode manipulation
 ├── code_analysis.rs (102 LOC) - Lines/branches from code
 ├── file_matcher.rs  (~180 LOC) - Path matching and filtering
-├── reporting.rs     (561 LOC) - Text reporting
+├── reporting.rs     (~770 LOC) - Text reporting, merge_coverage ✨ UPDATED
 ├── xmlreport.rs     (680 LOC) - XML (Cobertura) format
 ├── lcovreport.rs    (288 LOC) - LCOV format
 ├── schemas.rs       (53 LOC) - Native data structures

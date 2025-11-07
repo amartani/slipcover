@@ -8,6 +8,9 @@ use pyo3::types::{PyAny, PyDict, PyModule};
 use std::collections::HashSet;
 use tabled::{Table, Tabled, settings::Style};
 
+// Import CoversError from lib.rs
+use crate::CoversError;
+
 /// Format missing lines and branches as a string
 pub fn format_missing(
     missing_lines: &[i32],
@@ -569,4 +572,230 @@ pub fn add_summaries(py: Python, cov: &Bound<PyDict>) -> PyResult<()> {
     cov.set_item("summary", g_summary)?;
 
     Ok(())
+}
+
+/// Merge coverage result 'b' into 'a'
+#[pyfunction]
+pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyResult<Py<PyDict>> {
+    // Validate that both coverage files are in covers format
+    let a_meta = a.get_item("meta")?.ok_or_else(|| {
+        CoversError::new_err("Cannot merge coverage: missing 'meta' in first coverage")
+    })?;
+    let a_meta_dict: &Bound<PyDict> = a_meta.downcast()?;
+
+    let b_meta = b.get_item("meta")?.ok_or_else(|| {
+        CoversError::new_err("Cannot merge coverage: missing 'meta' in second coverage")
+    })?;
+    let b_meta_dict: &Bound<PyDict> = b_meta.downcast()?;
+
+    // Check if software is "covers"
+    if let Ok(Some(software)) = a_meta_dict.get_item("software") {
+        if software.extract::<String>()? != "covers" {
+            return Err(CoversError::new_err(
+                "Cannot merge coverage: only Covers format supported.",
+            ));
+        }
+    } else {
+        return Err(CoversError::new_err(
+            "Cannot merge coverage: only Covers format supported.",
+        ));
+    }
+
+    // Check if show_contexts is enabled (not supported)
+    let a_show_contexts = a_meta_dict
+        .get_item("show_contexts")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false);
+    let b_show_contexts = b_meta_dict
+        .get_item("show_contexts")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false);
+
+    if a_show_contexts || b_show_contexts {
+        return Err(CoversError::new_err(
+            "Merging coverage with show_contexts=True unsupported",
+        ));
+    }
+
+    // Check branch_coverage compatibility
+    let branch_coverage = a_meta_dict
+        .get_item("branch_coverage")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false);
+    let b_branch_coverage = b_meta_dict
+        .get_item("branch_coverage")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false);
+
+    if branch_coverage && !b_branch_coverage {
+        return Err(CoversError::new_err(
+            "Cannot merge coverage: branch coverage missing",
+        ));
+    }
+
+    // Get files dictionaries
+    let a_files = a.get_item("files")?.ok_or_else(|| {
+        CoversError::new_err("Cannot merge coverage: missing 'files' in first coverage")
+    })?;
+    let a_files_dict: &Bound<PyDict> = a_files.downcast()?;
+
+    let b_files = b.get_item("files")?.ok_or_else(|| {
+        CoversError::new_err("Cannot merge coverage: missing 'files' in second coverage")
+    })?;
+    let b_files_dict: &Bound<PyDict> = b_files.downcast()?;
+
+    // Merge files
+    for (filename, b_file_data) in b_files_dict.iter() {
+        let filename_str = filename.extract::<String>()?;
+        let b_file_dict: &Bound<PyDict> = b_file_data.downcast()?;
+
+        // Get executed and missing lines from b
+        let b_executed_lines = b_file_dict.get_item("executed_lines")?.unwrap();
+        let b_missing_lines = b_file_dict.get_item("missing_lines")?.unwrap();
+
+        // Get executed and missing lines from a (or empty if file doesn't exist in a)
+        let (a_executed_lines, a_missing_lines) =
+            if let Ok(Some(a_file_data)) = a_files_dict.get_item(&filename_str) {
+                let a_file_dict: &Bound<PyDict> = a_file_data.downcast()?;
+                (
+                    a_file_dict.get_item("executed_lines")?.unwrap(),
+                    a_file_dict.get_item("missing_lines")?.unwrap(),
+                )
+            } else {
+                (
+                    pyo3::types::PyList::empty(py).into_any(),
+                    pyo3::types::PyList::empty(py).into_any(),
+                )
+            };
+
+        // Merge executed lines
+        let mut executed_lines_set: HashSet<i32> = HashSet::new();
+        for item in a_executed_lines.downcast::<pyo3::types::PyList>()?.iter() {
+            executed_lines_set.insert(item.extract::<i32>()?);
+        }
+        for item in b_executed_lines.downcast::<pyo3::types::PyList>()?.iter() {
+            executed_lines_set.insert(item.extract::<i32>()?);
+        }
+
+        // Merge missing lines
+        let mut missing_lines_set: HashSet<i32> = HashSet::new();
+        for item in a_missing_lines.downcast::<pyo3::types::PyList>()?.iter() {
+            missing_lines_set.insert(item.extract::<i32>()?);
+        }
+        for item in b_missing_lines.downcast::<pyo3::types::PyList>()?.iter() {
+            missing_lines_set.insert(item.extract::<i32>()?);
+        }
+
+        // Remove executed lines from missing lines
+        missing_lines_set.retain(|line| !executed_lines_set.contains(line));
+
+        // Sort the results
+        let mut executed_lines_vec: Vec<i32> = executed_lines_set.into_iter().collect();
+        executed_lines_vec.sort_unstable();
+        let mut missing_lines_vec: Vec<i32> = missing_lines_set.into_iter().collect();
+        missing_lines_vec.sort_unstable();
+
+        // Create update dict
+        let update = PyDict::new(py);
+        update.set_item("executed_lines", executed_lines_vec)?;
+        update.set_item("missing_lines", missing_lines_vec)?;
+
+        // Handle branches if branch_coverage is enabled
+        if branch_coverage {
+            // Get executed and missing branches from b
+            let b_executed_branches = b_file_dict.get_item("executed_branches")?.unwrap();
+            let b_missing_branches = b_file_dict.get_item("missing_branches")?.unwrap();
+
+            // Get executed and missing branches from a (or empty if file doesn't exist in a)
+            let (a_executed_branches, a_missing_branches) =
+                if let Ok(Some(a_file_data)) = a_files_dict.get_item(&filename_str) {
+                    let a_file_dict: &Bound<PyDict> = a_file_data.downcast()?;
+                    (
+                        a_file_dict.get_item("executed_branches")?.unwrap(),
+                        a_file_dict.get_item("missing_branches")?.unwrap(),
+                    )
+                } else {
+                    (
+                        pyo3::types::PyList::empty(py).into_any(),
+                        pyo3::types::PyList::empty(py).into_any(),
+                    )
+                };
+
+            // Merge executed branches (convert to tuples for comparison)
+            let mut executed_branches_set: HashSet<(i32, i32)> = HashSet::new();
+            for item in a_executed_branches
+                .downcast::<pyo3::types::PyList>()?
+                .iter()
+            {
+                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+                let br = (
+                    br_list.get_item(0)?.extract::<i32>()?,
+                    br_list.get_item(1)?.extract::<i32>()?,
+                );
+                executed_branches_set.insert(br);
+            }
+            for item in b_executed_branches
+                .downcast::<pyo3::types::PyList>()?
+                .iter()
+            {
+                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+                let br = (
+                    br_list.get_item(0)?.extract::<i32>()?,
+                    br_list.get_item(1)?.extract::<i32>()?,
+                );
+                executed_branches_set.insert(br);
+            }
+
+            // Merge missing branches
+            let mut missing_branches_set: HashSet<(i32, i32)> = HashSet::new();
+            for item in a_missing_branches.downcast::<pyo3::types::PyList>()?.iter() {
+                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+                let br = (
+                    br_list.get_item(0)?.extract::<i32>()?,
+                    br_list.get_item(1)?.extract::<i32>()?,
+                );
+                missing_branches_set.insert(br);
+            }
+            for item in b_missing_branches.downcast::<pyo3::types::PyList>()?.iter() {
+                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+                let br = (
+                    br_list.get_item(0)?.extract::<i32>()?,
+                    br_list.get_item(1)?.extract::<i32>()?,
+                );
+                missing_branches_set.insert(br);
+            }
+
+            // Remove executed branches from missing branches
+            missing_branches_set.retain(|br| !executed_branches_set.contains(br));
+
+            // Sort and convert back to lists
+            let mut executed_branches_vec: Vec<(i32, i32)> =
+                executed_branches_set.into_iter().collect();
+            executed_branches_vec.sort_unstable();
+            let executed_branches_list: Vec<Vec<i32>> = executed_branches_vec
+                .into_iter()
+                .map(|(a, b)| vec![a, b])
+                .collect();
+
+            let mut missing_branches_vec: Vec<(i32, i32)> =
+                missing_branches_set.into_iter().collect();
+            missing_branches_vec.sort_unstable();
+            let missing_branches_list: Vec<Vec<i32>> = missing_branches_vec
+                .into_iter()
+                .map(|(a, b)| vec![a, b])
+                .collect();
+
+            update.set_item("executed_branches", executed_branches_list)?;
+            update.set_item("missing_branches", missing_branches_list)?;
+        }
+
+        // Set the merged data for this file
+        a_files_dict.set_item(filename_str, update)?;
+    }
+
+    // Add summaries to the merged coverage
+    add_summaries(py, a)?;
+
+    // Return the modified dict a
+    Ok(a.clone().unbind())
 }
