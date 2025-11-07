@@ -17,8 +17,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// Version constant
-pub const VERSION: &str = "1.0.17";
+/// Version constant (from Cargo.toml)
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Main Covers class
 #[pyclass]

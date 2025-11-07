@@ -1,6 +1,5 @@
 from typing import Any, Optional
-from .covers import Covers
-from .version import __version__
+from .covers import Covers, __version__
 from . import branch as br
 from .covers_core import FileMatcher
 from pathlib import Path
