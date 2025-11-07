@@ -36,9 +36,30 @@ module-name = "covers.covers_core"
 [project.optional-dependencies]
 test = [
     'pytest',
-    'pytest-forked'
+    'pytest-forked',
+    'pytest-cov'
 ]
 
 [tool.ruff]
 exclude = ["benchmarks", "tools", "tests/testme*.py", "tests/imported/bad.py"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*/test_*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
 
