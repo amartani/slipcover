@@ -10,3 +10,12 @@ dist/
 /target/
 uv.lock
 .claude/settings.local.json
+
+# Coverage files
+coverage.lcov
+coverage_py.lcov
+coverage_rust.lcov
+*.profdata
+*.profraw
+htmlcov/
+.coverage.*

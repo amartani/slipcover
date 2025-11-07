@@ -1,0 +1,42 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - src/**
+      - src_rust/**
+      - tests/**
+      - Cargo.toml
+      - pyproject.toml
+      - mise.toml
+      - .github/workflows/coverage.yml
+
+  pull_request:
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Run coverage
+        run: mise run coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.lcov
+          use_oidc: true
+          fail_ci_if_error: true
+          verbose: true
