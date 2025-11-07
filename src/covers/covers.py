@@ -20,6 +20,11 @@ from .covers_core import (  # noqa: F401
     print_xml,
     print_lcov,
     __version__,
+    # Bytecode classes
+    Branch,
+    Editor,
+    ExceptionTableEntry,
+    LineEntry,
 )
 
 __all__ = [
@@ -39,6 +44,11 @@ __all__ = [
     "print_coverage",
     "print_xml",
     "print_lcov",
+    # Bytecode classes (from Rust)
+    "Branch",
+    "Editor",
+    "ExceptionTableEntry",
+    "LineEntry",
     # Python utilities
     "findlinestarts",
     "format_missing",
