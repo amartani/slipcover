@@ -16,6 +16,7 @@ from .covers_core import (  # noqa: F401
     format_missing_py as format_missing,
     is_branch,
     lines_from_code,
+    merge_coverage,
     print_coverage,
     print_xml,
     print_lcov,
@@ -25,6 +26,8 @@ from .covers_core import (  # noqa: F401
     Editor,
     ExceptionTableEntry,
     LineEntry,
+    # Exceptions
+    CoversError,
 )
 
 __all__ = [
@@ -76,62 +79,11 @@ if TYPE_CHECKING:
     pass
 
 
-class CoversError(Exception):
-    pass
-
-
 # format_missing is now implemented in Rust (imported above)
 # print_xml is now implemented in Rust (imported above)
-
-
 # print_coverage is now implemented in Rust (imported above)
-
-
-def merge_coverage(a: dict, b: dict) -> dict:
-    """Merges coverage result 'b' into 'a'."""
-
-    if a.get("meta", {}).get("software", None) != "covers":
-        raise CoversError("Cannot merge coverage: only Covers format supported.")
-
-    if a.get("meta", {}).get("show_contexts", False) or b.get("meta", {}).get(
-        "show_contexts", False
-    ):
-        raise CoversError("Merging coverage with show_contexts=True unsupported")
-
-    branch_coverage = a.get("meta", {}).get("branch_coverage", False)
-    if branch_coverage and not b.get("meta", {}).get("branch_coverage", False):
-        raise CoversError("Cannot merge coverage: branch coverage missing")
-
-    a_files = a["files"]
-    b_files = b["files"]
-
-    def both(f, field):
-        return (a_files[f][field] if f in a_files else []) + b_files[f][field]
-
-    for f in b_files:
-        executed_lines = set(both(f, "executed_lines"))
-        missing_lines = set(both(f, "missing_lines"))
-        missing_lines -= executed_lines
-        update = {
-            "executed_lines": sorted(executed_lines),
-            "missing_lines": sorted(missing_lines),
-        }
-
-        if branch_coverage:
-            executed_branches = set(tuple(br) for br in both(f, "executed_branches"))
-            missing_branches = set(tuple(br) for br in both(f, "missing_branches"))
-            missing_branches -= executed_branches
-            update.update(
-                {
-                    "executed_branches": sorted(list(br) for br in executed_branches),
-                    "missing_branches": sorted(list(br) for br in missing_branches),
-                }
-            )
-
-        a_files[f] = update
-
-    add_summaries(a)
-    return a
+# merge_coverage is now implemented in Rust (imported above)
+# CoversError is now implemented in Rust (imported above)
 
 
 # The Covers class is now implemented in Rust (covers_core)
