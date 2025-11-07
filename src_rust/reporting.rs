@@ -581,12 +581,12 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
     let a_meta = a.get_item("meta")?.ok_or_else(|| {
         CoversError::new_err("Cannot merge coverage: missing 'meta' in first coverage")
     })?;
-    let a_meta_dict: &Bound<PyDict> = a_meta.downcast()?;
+    let a_meta_dict: &Bound<PyDict> = a_meta.cast()?;
 
     let b_meta = b.get_item("meta")?.ok_or_else(|| {
         CoversError::new_err("Cannot merge coverage: missing 'meta' in second coverage")
     })?;
-    let b_meta_dict: &Bound<PyDict> = b_meta.downcast()?;
+    let b_meta_dict: &Bound<PyDict> = b_meta.cast()?;
 
     // Check if software is "covers"
     if let Ok(Some(software)) = a_meta_dict.get_item("software") {
@@ -637,17 +637,17 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
     let a_files = a.get_item("files")?.ok_or_else(|| {
         CoversError::new_err("Cannot merge coverage: missing 'files' in first coverage")
     })?;
-    let a_files_dict: &Bound<PyDict> = a_files.downcast()?;
+    let a_files_dict: &Bound<PyDict> = a_files.cast()?;
 
     let b_files = b.get_item("files")?.ok_or_else(|| {
         CoversError::new_err("Cannot merge coverage: missing 'files' in second coverage")
     })?;
-    let b_files_dict: &Bound<PyDict> = b_files.downcast()?;
+    let b_files_dict: &Bound<PyDict> = b_files.cast()?;
 
     // Merge files
     for (filename, b_file_data) in b_files_dict.iter() {
         let filename_str = filename.extract::<String>()?;
-        let b_file_dict: &Bound<PyDict> = b_file_data.downcast()?;
+        let b_file_dict: &Bound<PyDict> = b_file_data.cast()?;
 
         // Get executed and missing lines from b
         let b_executed_lines = b_file_dict.get_item("executed_lines")?.unwrap();
@@ -656,7 +656,7 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
         // Get executed and missing lines from a (or empty if file doesn't exist in a)
         let (a_executed_lines, a_missing_lines) =
             if let Ok(Some(a_file_data)) = a_files_dict.get_item(&filename_str) {
-                let a_file_dict: &Bound<PyDict> = a_file_data.downcast()?;
+                let a_file_dict: &Bound<PyDict> = a_file_data.cast()?;
                 (
                     a_file_dict.get_item("executed_lines")?.unwrap(),
                     a_file_dict.get_item("missing_lines")?.unwrap(),
@@ -670,19 +670,19 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
 
         // Merge executed lines
         let mut executed_lines_set: HashSet<i32> = HashSet::new();
-        for item in a_executed_lines.downcast::<pyo3::types::PyList>()?.iter() {
+        for item in a_executed_lines.cast::<pyo3::types::PyList>()?.iter() {
             executed_lines_set.insert(item.extract::<i32>()?);
         }
-        for item in b_executed_lines.downcast::<pyo3::types::PyList>()?.iter() {
+        for item in b_executed_lines.cast::<pyo3::types::PyList>()?.iter() {
             executed_lines_set.insert(item.extract::<i32>()?);
         }
 
         // Merge missing lines
         let mut missing_lines_set: HashSet<i32> = HashSet::new();
-        for item in a_missing_lines.downcast::<pyo3::types::PyList>()?.iter() {
+        for item in a_missing_lines.cast::<pyo3::types::PyList>()?.iter() {
             missing_lines_set.insert(item.extract::<i32>()?);
         }
-        for item in b_missing_lines.downcast::<pyo3::types::PyList>()?.iter() {
+        for item in b_missing_lines.cast::<pyo3::types::PyList>()?.iter() {
             missing_lines_set.insert(item.extract::<i32>()?);
         }
 
@@ -709,7 +709,7 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
             // Get executed and missing branches from a (or empty if file doesn't exist in a)
             let (a_executed_branches, a_missing_branches) =
                 if let Ok(Some(a_file_data)) = a_files_dict.get_item(&filename_str) {
-                    let a_file_dict: &Bound<PyDict> = a_file_data.downcast()?;
+                    let a_file_dict: &Bound<PyDict> = a_file_data.cast()?;
                     (
                         a_file_dict.get_item("executed_branches")?.unwrap(),
                         a_file_dict.get_item("missing_branches")?.unwrap(),
@@ -723,22 +723,16 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
 
             // Merge executed branches (convert to tuples for comparison)
             let mut executed_branches_set: HashSet<(i32, i32)> = HashSet::new();
-            for item in a_executed_branches
-                .downcast::<pyo3::types::PyList>()?
-                .iter()
-            {
-                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+            for item in a_executed_branches.cast::<pyo3::types::PyList>()?.iter() {
+                let br_list: &Bound<pyo3::types::PyList> = item.cast()?;
                 let br = (
                     br_list.get_item(0)?.extract::<i32>()?,
                     br_list.get_item(1)?.extract::<i32>()?,
                 );
                 executed_branches_set.insert(br);
             }
-            for item in b_executed_branches
-                .downcast::<pyo3::types::PyList>()?
-                .iter()
-            {
-                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+            for item in b_executed_branches.cast::<pyo3::types::PyList>()?.iter() {
+                let br_list: &Bound<pyo3::types::PyList> = item.cast()?;
                 let br = (
                     br_list.get_item(0)?.extract::<i32>()?,
                     br_list.get_item(1)?.extract::<i32>()?,
@@ -748,16 +742,16 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
 
             // Merge missing branches
             let mut missing_branches_set: HashSet<(i32, i32)> = HashSet::new();
-            for item in a_missing_branches.downcast::<pyo3::types::PyList>()?.iter() {
-                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+            for item in a_missing_branches.cast::<pyo3::types::PyList>()?.iter() {
+                let br_list: &Bound<pyo3::types::PyList> = item.cast()?;
                 let br = (
                     br_list.get_item(0)?.extract::<i32>()?,
                     br_list.get_item(1)?.extract::<i32>()?,
                 );
                 missing_branches_set.insert(br);
             }
-            for item in b_missing_branches.downcast::<pyo3::types::PyList>()?.iter() {
-                let br_list: &Bound<pyo3::types::PyList> = item.downcast()?;
+            for item in b_missing_branches.cast::<pyo3::types::PyList>()?.iter() {
+                let br_list: &Bound<pyo3::types::PyList> = item.cast()?;
                 let br = (
                     br_list.get_item(0)?.extract::<i32>()?,
                     br_list.get_item(1)?.extract::<i32>()?,
