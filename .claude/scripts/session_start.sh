@@ -14,13 +14,13 @@ else
     echo "mise is already installed."
 fi
 
-mise trust
-mise install
+mise trust 2>/dev/null || true
+mise install > /dev/null 2>&1
 
 # Append mise activation to CLAUDE_ENV_FILE if not already present
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     MISE_ACTIVATION='eval "$(mise activate bash)"'
-    if ! grep -qF "$MISE_ACTIVATION" "$CLAUDE_ENV_FILE"; then
+    if ! grep -qsF "$MISE_ACTIVATION" "$CLAUDE_ENV_FILE" 2>/dev/null; then
         echo "Adding mise activation to $CLAUDE_ENV_FILE..."
         echo "$MISE_ACTIVATION" >> "$CLAUDE_ENV_FILE"
         echo "mise activation added to environment file."
