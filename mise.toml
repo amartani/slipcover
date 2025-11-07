@@ -52,16 +52,33 @@ run = "uv build"
 
 [tasks.coverage]
 description = "Run code coverage for Python and Rust"
-run = [
+run = '''
   # Clean up old coverage files
-  "rm -f coverage_py.lcov coverage_rust.lcov coverage.lcov",
+  rm -f coverage_py.lcov coverage_rust.lcov coverage.lcov
+
   # Install cargo-llvm-cov if not present
-  "cargo install cargo-llvm-cov --quiet 2>/dev/null || true",
-  # Run Python coverage using covers itself with editable install (continue even if tests fail)
-  "uv run --with pytest --with pytest-forked python -m covers --lcov --out coverage_py.lcov -m pytest || true",
-  # Run Rust coverage using cargo-llvm-cov
-  "cargo llvm-cov --lcov --output-path coverage_rust.lcov",
+  cargo install cargo-llvm-cov --quiet 2>/dev/null || true
+
+  # Set up environment variables for Rust instrumentation coverage
+  eval "$(cargo llvm-cov show-env --export-prefix 2>/dev/null | grep '^export')"
+
+  # Clean previous profiling data
+  cargo llvm-cov clean --workspace
+
+  # Run Rust tests with coverage instrumentation
+  cargo test
+
+  # Build the Python extension with Rust instrumentation enabled
+  uv run --with maturin maturin develop --uv
+
+  # Run Python tests with Python coverage (this will also exercise Rust code)
+  uv run --with pytest --with pytest-forked python -m covers --lcov --out coverage_py.lcov -m pytest || true
+
+  # Generate Rust coverage report from all profraw files (includes coverage from Python tests)
+  cargo llvm-cov report --lcov --output-path coverage_rust.lcov
+
   # Combine coverage files
-  "cat coverage_py.lcov coverage_rust.lcov > coverage.lcov",
-  "echo 'Coverage generated: coverage_py.lcov (Python), coverage_rust.lcov (Rust), coverage.lcov (combined)'",
-]
+  cat coverage_py.lcov coverage_rust.lcov > coverage.lcov
+
+  echo 'Coverage generated: coverage_py.lcov (Python), coverage_rust.lcov (Rust), coverage.lcov (combined)'
+'''
