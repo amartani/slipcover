@@ -260,13 +260,218 @@ pub fn parse_args(py: Python, argv: Vec<String>) -> PyResult<Bound<PyDict>> {
 }
 
 fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
-    // Import the runner module which has the merge logic
-    let runner_module = PyModule::import(py, "covers.runner")?;
-    let merge_fn = runner_module.getattr("merge_coverage_files")?;
+    use pyo3::types::PyList;
+    use std::path::{Path, PathBuf};
 
-    // Call the Python merge function
-    let result = merge_fn.call1((args,))?;
-    result.extract::<i32>()
+    // Get merge files from args
+    let merge_files_obj = args
+        .get_item("merge")?
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("merge files not specified"))?;
+
+    // Convert to Vec<String>
+    let merge_files_list: Vec<String> = if let Ok(single_file) = merge_files_obj.extract::<String>()
+    {
+        vec![single_file]
+    } else {
+        merge_files_obj.extract::<Vec<String>>()?
+    };
+
+    if merge_files_list.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "no merge files specified",
+        ));
+    }
+
+    // Convert string paths to Path objects
+    let merge_files: Vec<PathBuf> = merge_files_list.iter().map(PathBuf::from).collect();
+
+    let base_path = merge_files[0]
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_string_lossy()
+        .to_string();
+
+    // Load the first file as the base coverage - use Python's json module
+    let json_module = PyModule::import(py, "json")?;
+    let json_load = json_module.getattr("load")?;
+
+    let first_file_str = merge_files[0].to_string_lossy().to_string();
+    let builtins = PyModule::import(py, "builtins")?;
+    let open_fn = builtins.getattr("open")?;
+    let first_file_handle = open_fn.call1((first_file_str.clone(),))?;
+
+    let merged_dict = json_load.call1((&first_file_handle,))?;
+    first_file_handle.call_method0("close")?;
+
+    let merged_dict: &Bound<PyDict> = merged_dict.cast().map_err(|_| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "Error: {} is not a valid JSON object",
+            first_file_str
+        ))
+    })?;
+
+    // Import merge_coverage function
+    let covers_module = PyModule::import(py, "covers")?;
+    let merge_coverage_fn = covers_module.getattr("merge_coverage")?;
+
+    // Merge additional files
+    for merge_file in merge_files.iter().skip(1) {
+        let merge_file_str = merge_file.to_string_lossy().to_string();
+        let file_handle = open_fn.call1((merge_file_str.clone(),))?;
+        let coverage_dict = json_load.call1((&file_handle,))?;
+        file_handle.call_method0("close")?;
+
+        // Merge into merged_dict
+        merge_coverage_fn.call1((merged_dict, coverage_dict))?;
+    }
+
+    // Get output file path
+    let out_file_str: String = args
+        .get_item("out")?
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("--out is required"))?
+        .extract()?;
+
+    // Determine output format and write
+    let branch = args
+        .get_item("branch")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false);
+    let xml_package_depth = args
+        .get_item("xml_package_depth")?
+        .and_then(|v| v.extract::<i32>().ok())
+        .unwrap_or(99);
+
+    // Open output file for writing
+    let out_handle = open_fn.call(
+        (out_file_str.clone(), "w"),
+        Some(&[("encoding", "utf-8")].into_py_dict(py)?),
+    )?;
+
+    if args
+        .get_item("xml")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false)
+    {
+        // XML output
+        let print_xml_fn = covers_module.getattr("print_xml")?;
+        let source_paths_list = PyList::new(py, &[base_path.clone()])?;
+        print_xml_fn.call(
+            (),
+            Some(
+                &[
+                    ("coverage", merged_dict.as_any()),
+                    ("source_paths", source_paths_list.as_any()),
+                    ("with_branches", branch.into_pyobject(py)?.as_any()),
+                    (
+                        "xml_package_depth",
+                        xml_package_depth.into_pyobject(py)?.as_any(),
+                    ),
+                    ("outfile", &out_handle),
+                ]
+                .into_py_dict(py)?,
+            ),
+        )?;
+    } else if args
+        .get_item("lcov")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false)
+    {
+        // LCOV output
+        let print_lcov_fn = covers_module.getattr("print_lcov")?;
+        let source_paths_list = PyList::new(py, &[base_path.clone()])?;
+        print_lcov_fn.call(
+            (),
+            Some(
+                &[
+                    ("coverage", merged_dict.as_any()),
+                    ("source_paths", source_paths_list.as_any()),
+                    ("with_branches", branch.into_pyobject(py)?.as_any()),
+                    ("outfile", &out_handle),
+                ]
+                .into_py_dict(py)?,
+            ),
+        )?;
+    } else {
+        // JSON output (default)
+        let pretty_print = args
+            .get_item("pretty_print")?
+            .and_then(|v| v.extract::<bool>().ok())
+            .unwrap_or(false);
+
+        let json_dump = json_module.getattr("dump")?;
+        if pretty_print {
+            json_dump.call(
+                (merged_dict, &out_handle),
+                Some(&[("indent", 4)].into_py_dict(py)?),
+            )?;
+        } else {
+            json_dump.call1((merged_dict, &out_handle))?;
+        }
+    }
+
+    out_handle.call_method0("close")?;
+
+    // Print human-readable table unless silent
+    let silent = args
+        .get_item("silent")?
+        .and_then(|v| v.extract::<bool>().ok())
+        .unwrap_or(false);
+
+    if !silent {
+        let print_coverage_fn = covers_module.getattr("print_coverage")?;
+        let skip_covered = args
+            .get_item("skip_covered")?
+            .and_then(|v| v.extract::<bool>().ok())
+            .unwrap_or(false);
+        let missing_width = args
+            .get_item("missing_width")?
+            .and_then(|v| v.extract::<i32>().ok())
+            .unwrap_or(80);
+
+        let sys_module = PyModule::import(py, "sys")?;
+        let stdout = sys_module.getattr("stdout")?;
+
+        print_coverage_fn.call(
+            (),
+            Some(
+                &[
+                    ("coverage", merged_dict.as_any()),
+                    ("outfile", stdout.as_any()),
+                    ("skip_covered", skip_covered.into_pyobject(py)?.as_any()),
+                    (
+                        "missing_width",
+                        (missing_width as usize).into_pyobject(py)?.as_any(),
+                    ),
+                ]
+                .into_py_dict(py)?,
+            ),
+        )?;
+    }
+
+    // Check fail_under threshold
+    let fail_under = args
+        .get_item("fail_under")?
+        .and_then(|v| v.extract::<f64>().ok())
+        .unwrap_or(0.0);
+
+    if fail_under > 0.0 {
+        let summary = merged_dict
+            .get_item("summary")?
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("coverage has no summary"))?;
+        let summary_dict: &Bound<PyDict> = summary.cast()?;
+        let percent_covered: f64 = summary_dict
+            .get_item("percent_covered")?
+            .ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err("summary has no percent_covered")
+            })?
+            .extract()?;
+
+        if percent_covered < fail_under {
+            return Ok(2);
+        }
+    }
+
+    Ok(0)
 }
 
 fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
@@ -613,7 +818,8 @@ fn run_module(
         .get_item("module")?
         .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("module not specified"))?;
     let module_list: Vec<String> = module_obj.extract()?;
-    let module_name = module_list.first()
+    let module_name = module_list
+        .first()
         .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("module list is empty"))?;
 
     // Set up sys.argv
