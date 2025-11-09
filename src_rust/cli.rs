@@ -3,7 +3,7 @@
 
 use clap::Parser;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{IntoPyDict, PyDict, PyList, PyModule};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -270,11 +270,383 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
 }
 
 fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
-    // Import the runner module
-    let runner_module = PyModule::import(py, "covers.runner")?;
-    let run_fn = runner_module.getattr("run_with_coverage")?;
+    use pyo3::types::PyModule;
+    use std::path::PathBuf;
 
-    // Call the Python runner function
-    let result = run_fn.call1((args,))?;
-    result.extract::<i32>()
+    // Determine base path - always resolve to absolute path
+    let base_path = if let Some(script) = args.get_item("script")? {
+        let script_str: String = script.extract()?;
+        let script_path = PathBuf::from(&script_str);
+        let parent = script_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        // Resolve parent to absolute path
+        dunce::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf())
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    };
+
+    // Set up file matcher
+    let file_matcher_class = py.import("covers")?.getattr("FileMatcher")?;
+    let file_matcher = file_matcher_class.call0()?;
+
+    // Add sources
+    if let Some(source) = args.get_item("source")? {
+        let source_str: String = source.extract()?;
+        for s in source_str.split(',') {
+            file_matcher.call_method1("addSource", (s,))?;
+        }
+    } else if let Some(script) = args.get_item("script")? {
+        let script_str: String = script.extract()?;
+        let script_parent = PathBuf::from(&script_str)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        file_matcher.call_method1("addSource", (script_parent.to_string_lossy().as_ref(),))?;
+    }
+
+    // Add omit patterns
+    if let Some(omit) = args.get_item("omit")? {
+        let omit_str: String = omit.extract()?;
+        for o in omit_str.split(',') {
+            file_matcher.call_method1("addOmit", (o,))?;
+        }
+    }
+
+    // Extract source list for Covers constructor
+    let source_list = if let Some(source) = args.get_item("source")? {
+        let source_str: String = source.extract()?;
+        Some(
+            source_str
+                .split(',')
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        None
+    };
+
+    // Create Covers instance
+    let immediate = args
+        .get_item("immediate")?
+        .and_then(|v| v.extract().ok())
+        .unwrap_or(false);
+    let threshold = args
+        .get_item("threshold")?
+        .and_then(|v| v.extract().ok())
+        .unwrap_or(50);
+    let branch = args
+        .get_item("branch")?
+        .and_then(|v| v.extract().ok())
+        .unwrap_or(false);
+    let dis = args
+        .get_item("dis")?
+        .and_then(|v| v.extract().ok())
+        .unwrap_or(false);
+
+    let covers_class = py.import("covers")?.getattr("Covers")?;
+    let sci = covers_class.call1((immediate, threshold, branch, dis, source_list))?;
+
+    // Wrap pytest if not disabled
+    let dont_wrap_pytest = args
+        .get_item("dont_wrap_pytest")?
+        .and_then(|v| v.extract().ok())
+        .unwrap_or(false);
+    if !dont_wrap_pytest {
+        let covers_module = PyModule::import(py, "covers")?;
+        let wrap_pytest = covers_module.getattr("wrap_pytest")?;
+        wrap_pytest.call1((&sci, &file_matcher))?;
+    }
+
+    // Set up fork handling on non-Windows platforms
+    let platform_module = PyModule::import(py, "platform")?;
+    let system: String = platform_module.call_method0("system")?.extract()?;
+
+    if system != "Windows" {
+        // Set up fork and exit shims
+        setup_fork_handling(py, &sci, args)?;
+    }
+
+    // Set up atexit handler for coverage output
+    setup_atexit_handler(py, &sci, args, &base_path)?;
+
+    // Run script or module
+    if let Some(script) = args.get_item("script")? {
+        run_script(py, &sci, &file_matcher, args, &script)?;
+    } else {
+        run_module(py, &sci, &file_matcher, args)?;
+    }
+
+    // Check fail_under threshold
+    let fail_under = args
+        .get_item("fail_under")?
+        .and_then(|v| v.extract::<f64>().ok())
+        .unwrap_or(0.0);
+    if fail_under > 0.0 {
+        let cov = sci.call_method0("get_coverage")?;
+        let summary = cov.get_item("summary")?;
+        let percent_covered: f64 = summary.get_item("percent_covered")?.extract()?;
+        if percent_covered < fail_under {
+            return Ok(2);
+        }
+    }
+
+    Ok(0)
+}
+
+fn setup_fork_handling(py: Python, sci: &Bound<PyAny>, _args: &Bound<PyDict>) -> PyResult<()> {
+    // Import the runner module for fork/exit shims
+    let runner_module = PyModule::import(py, "covers.runner")?;
+    let fork_shim = runner_module.getattr("fork_shim")?;
+    let exit_shim = runner_module.getattr("exit_shim")?;
+
+    // Get os module
+    let os_module = PyModule::import(py, "os")?;
+
+    // Set up fork and exit shims
+    let fork_wrapper = fork_shim.call1((sci,))?;
+    let exit_wrapper = exit_shim.call1((sci,))?;
+
+    os_module.setattr("fork", fork_wrapper)?;
+    os_module.setattr("_exit", exit_wrapper)?;
+
+    Ok(())
+}
+
+fn setup_atexit_handler(
+    py: Python,
+    sci: &Bound<PyAny>,
+    args: &Bound<PyDict>,
+    base_path: &std::path::Path,
+) -> PyResult<()> {
+    use pyo3::types::PyModule;
+    use std::ffi::CString;
+
+    // Create the atexit callback
+    let args_clone = args.clone();
+    let sci_clone = sci.clone();
+    let base_path_str = base_path.to_string_lossy().to_string();
+
+    // Import atexit module
+    let atexit_module = PyModule::import(py, "atexit")?;
+
+    // Create Python callback by defining it with proper closure
+    // Pass base_path as a variable to avoid Windows path escaping issues
+    let code_str = r#"
+import sys
+import json
+import covers as sc
+from covers.runner import get_coverage
+
+def sci_atexit():
+    def printit(coverage, outfile):
+        if _args.get("json"):
+            print(
+                json.dumps(
+                    coverage, indent=(4 if _args.get("pretty_print") else None)
+                ),
+                file=outfile,
+            )
+        elif _args.get("xml"):
+            sc.print_xml(
+                coverage,
+                source_paths=[_base_path],
+                with_branches=_args.get("branch", False),
+                xml_package_depth=_args.get("xml_package_depth", 99),
+                outfile=outfile,
+            )
+        elif _args.get("lcov"):
+            sc.print_lcov(
+                coverage,
+                source_paths=[_base_path],
+                with_branches=_args.get("branch", False),
+                outfile=outfile,
+            )
+        else:
+            sc.print_coverage(
+                coverage,
+                outfile=outfile,
+                skip_covered=_args.get("skip_covered", False),
+                missing_width=_args.get("missing_width", 80),
+            )
+
+    if not _args.get("silent"):
+        coverage = get_coverage(_sci)
+        if _args.get("out"):
+            with open(_args["out"], "w") as outfile:
+                printit(coverage, outfile)
+        else:
+            printit(coverage, sys.stdout)
+"#;
+
+    let callback_code = CString::new(code_str).unwrap();
+
+    // Execute the callback definition with args, sci, and base_path in the namespace
+    let globals = pyo3::types::PyDict::new(py);
+    globals.set_item("_args", &args_clone)?;
+    globals.set_item("_sci", &sci_clone)?;
+    globals.set_item("_base_path", base_path_str)?;
+
+    py.run(&callback_code, Some(&globals), Some(&globals))?;
+
+    let callback = globals.get_item("sci_atexit")?.unwrap();
+
+    // Register the callback
+    atexit_module.call_method1("register", (callback,))?;
+
+    Ok(())
+}
+
+fn run_script(
+    py: Python,
+    sci: &Bound<PyAny>,
+    file_matcher: &Bound<PyAny>,
+    args: &Bound<PyDict>,
+    script: &Bound<PyAny>,
+) -> PyResult<()> {
+    use pyo3::types::{PyDict, PyString};
+    use std::fs;
+    use std::path::PathBuf;
+
+    let script_str: String = script.extract()?;
+    let script_path = PathBuf::from(&script_str);
+
+    // Python globals for the script being executed
+    let script_globals = PyDict::new(py);
+    script_globals.set_item("__name__", "__main__")?;
+    script_globals.set_item("__file__", script_str.clone())?;
+
+    // Set up sys.argv
+    let sys_module = PyModule::import(py, "sys")?;
+    let argv = PyList::new(py, &[PyString::new(py, &script_str)])?;
+
+    if let Some(script_args) = args.get_item("script_or_module_args")? {
+        let script_args_list: Vec<String> = script_args.extract()?;
+        for arg in script_args_list {
+            argv.append(PyString::new(py, &arg))?;
+        }
+    }
+    sys_module.setattr("argv", argv)?;
+
+    // Modify sys.path
+    let sys_path_obj = sys_module.getattr("path")?;
+    let sys_path = sys_path_obj.cast::<PyList>()?;
+    sys_path.del_item(0)?;
+    let base_path = script_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    sys_path.insert(0, base_path.to_string_lossy().as_ref())?;
+
+    // Read and compile the script
+    let source = fs::read_to_string(&script_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to read script: {}", e))
+    })?;
+
+    // Check if we need to apply branch pre-instrumentation
+    let branch = args
+        .get_item("branch")?
+        .and_then(|v| v.extract().ok())
+        .unwrap_or(false);
+    let matches: bool = file_matcher
+        .call_method1("matches", (script_str.clone(),))?
+        .extract()?;
+
+    let code = if branch && matches {
+        // Apply branch pre-instrumentation
+        let branch_module = PyModule::import(py, "covers.branch")?;
+        let preinstrument = branch_module.getattr("preinstrument")?;
+        let ast_tree = preinstrument.call1((source.as_str(),))?;
+
+        // Compile the AST
+        let builtins = PyModule::import(py, "builtins")?;
+        let compile = builtins.getattr("compile")?;
+        compile.call1((ast_tree, script_path.to_string_lossy().as_ref(), "exec"))?
+    } else {
+        // Parse and compile normally
+        let ast_module = PyModule::import(py, "ast")?;
+        let ast_tree = ast_module.call_method1("parse", (source.as_str(),))?;
+
+        let builtins = PyModule::import(py, "builtins")?;
+        let compile = builtins.getattr("compile")?;
+        compile.call1((ast_tree, script_path.to_string_lossy().as_ref(), "exec"))?
+    };
+
+    // Instrument if matches
+    let instrumented_code = if matches {
+        sci.call_method1("instrument", (code,))?
+    } else {
+        code.clone()
+    };
+
+    // Execute with ImportManager context
+    let covers_module = PyModule::import(py, "covers")?;
+    let import_manager_class = covers_module.getattr("ImportManager")?;
+    let import_manager = import_manager_class.call1((sci, file_matcher))?;
+
+    // Enter context
+    import_manager.call_method0("__enter__")?;
+
+    // Execute the code - use Python's exec function
+    let builtins = PyModule::import(py, "builtins")?;
+    let exec_fn = builtins.getattr("exec")?;
+    let exec_result = exec_fn.call1((instrumented_code, script_globals));
+
+    // Exit context
+    import_manager.call_method1("__exit__", (py.None(), py.None(), py.None()))?;
+
+    exec_result?;
+
+    Ok(())
+}
+
+fn run_module(
+    py: Python,
+    sci: &Bound<PyAny>,
+    file_matcher: &Bound<PyAny>,
+    args: &Bound<PyDict>,
+) -> PyResult<()> {
+    use pyo3::types::{PyList, PyString};
+
+    // Get module name
+    let module_obj = args
+        .get_item("module")?
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("module not specified"))?;
+    let module_list: Vec<String> = module_obj.extract()?;
+    let module_name = module_list.first()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("module list is empty"))?;
+
+    // Set up sys.argv
+    let sys_module = PyModule::import(py, "sys")?;
+    let argv = PyList::new(py, &[PyString::new(py, module_name)])?;
+
+    if let Some(script_args) = args.get_item("script_or_module_args")? {
+        let script_args_list: Vec<String> = script_args.extract()?;
+        for arg in script_args_list {
+            argv.append(PyString::new(py, &arg))?;
+        }
+    }
+    sys_module.setattr("argv", argv)?;
+
+    // Import runpy and run the module
+    let runpy_module = PyModule::import(py, "runpy")?;
+
+    // Execute with ImportManager context
+    let covers_module = PyModule::import(py, "covers")?;
+    let import_manager_class = covers_module.getattr("ImportManager")?;
+    let import_manager = import_manager_class.call1((sci, file_matcher))?;
+
+    // Enter context
+    import_manager.call_method0("__enter__")?;
+
+    // Run the module
+    let kwargs = [("run_name", "__main__"), ("alter_sys", "True")].into_py_dict(py)?;
+    let run_result = runpy_module.call_method("run_module", (module_name,), Some(&kwargs));
+
+    // Exit context
+    import_manager.call_method1("__exit__", (py.None(), py.None(), py.None()))?;
+
+    run_result?;
+
+    Ok(())
 }
