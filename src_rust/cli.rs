@@ -432,9 +432,8 @@ fn setup_atexit_handler(
     let atexit_module = PyModule::import(py, "atexit")?;
 
     // Create Python callback by defining it with proper closure
-    // We need to import the modules first and then create a closure
-    let code_str = format!(
-        r#"
+    // Pass base_path as a variable to avoid Windows path escaping issues
+    let code_str = r#"
 import sys
 import json
 import covers as sc
@@ -452,7 +451,7 @@ def sci_atexit():
         elif _args.get("xml"):
             sc.print_xml(
                 coverage,
-                source_paths=["{}"],
+                source_paths=[_base_path],
                 with_branches=_args.get("branch", False),
                 xml_package_depth=_args.get("xml_package_depth", 99),
                 outfile=outfile,
@@ -460,7 +459,7 @@ def sci_atexit():
         elif _args.get("lcov"):
             sc.print_lcov(
                 coverage,
-                source_paths=["{}"],
+                source_paths=[_base_path],
                 with_branches=_args.get("branch", False),
                 outfile=outfile,
             )
@@ -479,16 +478,15 @@ def sci_atexit():
                 printit(coverage, outfile)
         else:
             printit(coverage, sys.stdout)
-"#,
-        base_path_str, base_path_str
-    );
+"#;
 
     let callback_code = CString::new(code_str).unwrap();
 
-    // Execute the callback definition with args and sci in the namespace
+    // Execute the callback definition with args, sci, and base_path in the namespace
     let globals = pyo3::types::PyDict::new(py);
     globals.set_item("_args", &args_clone)?;
     globals.set_item("_sci", &sci_clone)?;
+    globals.set_item("_base_path", base_path_str)?;
 
     py.run(&callback_code, Some(&globals), Some(&globals))?;
 
