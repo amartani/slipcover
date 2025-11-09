@@ -18,9 +18,14 @@ run = [
   "cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings",
 ]
 
+[tasks.toml_lint]
+description = "Run toml formatting with tombi"
+tools."aqua:tombi-toml/tombi" = "latest"
+run = "tombi format"
+
 [tasks.lint]
 description = "Run all linting tasks"
-depends = ["python_lint", "rust_lint"]
+depends = ["python_lint", "rust_lint", "toml_lint"]
 
 [tasks.test_py312]
 description = "Run pytest with Python 3.12"
