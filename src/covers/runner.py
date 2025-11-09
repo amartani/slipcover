@@ -4,17 +4,14 @@ This module is called from the Rust CLI and handles the parts that must be in Py
 - Import hooks for code instrumentation
 - AST transformation for branch coverage
 - Script/module execution in the correct Python context
-- Coverage file merging
+- Fork/exit handling for multiprocess coverage
 """
 
-import sys
 import os
 import functools
 import tempfile
 import json
 import warnings
-from pathlib import Path
-from typing import Any, Dict
 
 import covers as sc
 
@@ -105,80 +102,5 @@ def exit_shim(sci):
     return wrapper
 
 
-# run_with_coverage has been moved to Rust (src_rust/cli.rs)
+# run_with_coverage and merge_coverage_files have been moved to Rust (src_rust/cli.rs)
 # This file now only contains helper functions used by the Rust implementation
-
-
-def merge_coverage_files(args: Dict[str, Any]) -> int:
-    """Merge coverage files and output the result.
-
-    Args:
-        args: Dictionary of command-line arguments from Rust CLI
-
-    Returns:
-        Exit code (0 for success, 1 for error, 2 for fail-under threshold)
-    """
-    merge_files = args.get("merge", [])
-    if isinstance(merge_files, str):
-        merge_files = [merge_files]
-
-    # Convert string paths to Path objects if needed
-    merge_files = [Path(f) if isinstance(f, str) else f for f in merge_files]
-
-    base_path = merge_files[0].parent if merge_files else Path(".")
-
-    try:
-        with merge_files[0].open() as jf:
-            merged = json.load(jf)
-    except Exception as e:
-        warnings.warn(f"Error reading {merge_files[0]}: {e}")
-        return 1
-
-    try:
-        for f in merge_files[1:]:
-            with f.open() as jf:
-                sc.merge_coverage(merged, json.load(jf))
-    except Exception as e:
-        warnings.warn(f"Error merging {f}: {e}")
-        return 1
-
-    out_file = Path(args["out"]) if isinstance(args["out"], str) else args["out"]
-
-    try:
-        with out_file.open("w", encoding="utf-8") as jf:
-            if args.get("xml"):
-                sc.print_xml(
-                    merged,
-                    source_paths=[str(base_path)],
-                    with_branches=args.get("branch", False),
-                    xml_package_depth=args.get("xml_package_depth", 99),
-                    outfile=jf,
-                )
-            elif args.get("lcov"):
-                sc.print_lcov(
-                    merged,
-                    source_paths=[str(base_path)],
-                    with_branches=args.get("branch", False),
-                    outfile=jf,
-                )
-            else:
-                json.dump(merged, jf, indent=(4 if args.get("pretty_print") else None))
-
-        # Print human-readable table for merge results
-        if not args.get("silent"):
-            sc.print_coverage(
-                merged,
-                outfile=sys.stdout,
-                skip_covered=args.get("skip_covered", False),
-                missing_width=args.get("missing_width", 80),
-            )
-
-    except Exception as e:
-        warnings.warn(str(e))
-        return 1
-
-    if args.get("fail_under", 0.0) > 0:
-        if merged["summary"]["percent_covered"] < args["fail_under"]:
-            return 2
-
-    return 0
