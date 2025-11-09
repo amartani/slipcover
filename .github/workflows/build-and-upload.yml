@@ -77,29 +77,12 @@ jobs:
           # Verify the change
           grep '^version = ' Cargo.toml | head -1
 
-      - name: Build wheels (x86_64 - Linux/Windows)
-        if: matrix.target == 'x86_64' && matrix.os != 'macos-latest'
-        run: maturin build --release --out dist
-
-      - name: Build wheels (aarch64 - Linux)
-        if: matrix.target == 'aarch64' && matrix.os == 'ubuntu-latest'
+      - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: aarch64
+          target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: auto
-
-      - name: Build wheels (x86_64 - macOS)
-        if: matrix.target == 'x86_64' && matrix.os == 'macos-latest'
-        run: |
-          rustup target add x86_64-apple-darwin
-          maturin build --release --target x86_64-apple-darwin --out dist
-
-      - name: Build wheels (aarch64 - macOS)
-        if: matrix.target == 'aarch64' && matrix.os == 'macos-latest'
-        run: |
-          rustup target add aarch64-apple-darwin
-          maturin build --release --target aarch64-apple-darwin --out dist
 
       - name: Build source dist
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64'
