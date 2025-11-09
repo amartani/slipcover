@@ -44,9 +44,11 @@ run = "uv run --python 3.14 --group test pytest -- ${usage_files}"
 [tasks.test_all_versions]
 description = "Run tests on all Python versions (3.12, 3.13, 3.14)"
 usage = 'arg "[files]" var=#true help="Files to test"'
-run = ["mise run test_py312 ${usage_files}",
-       "mise run test_py313 ${usage_files}",
-       "mise run test_py314 ${usage_files}"]
+run = [
+  "mise run test_py312 ${usage_files}",
+  "mise run test_py313 ${usage_files}",
+  "mise run test_py314 ${usage_files}"
+]
 
 [tasks.build]
 description = "Builds the project (in development mode)"
@@ -77,7 +79,6 @@ run = [
 [tasks.coverage]
 description = "Run code coverage for Python and Rust"
 tools."github:taiki-e/cargo-llvm-cov" = "latest"
-
 run = '''
   # Clean up old coverage files
   rm -f coverage_py.lcov coverage_rust.lcov coverage.lcov

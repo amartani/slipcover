@@ -1,56 +1,55 @@
 [project]
 name = "covers"
 description = "Near Zero-Overhead Python Code Coverage"
-keywords = ['coverage', 'testing']
-dynamic = ["version"]
 readme = "README.md"
-classifiers = [
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS :: MacOS X",
-    "Operating System :: Microsoft :: Windows :: Windows 10"
-]
 requires-python = ">=3.12,<3.15"
-
-[project.scripts]
-covers = "covers.__main__:main"
+keywords = ["coverage", "testing"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14"
+]
+dynamic = ["version"]
 
 [project.urls]
 "Homepage" = "https://github.com/amartani/covers"
 "Repository" = "https://github.com/amartani/covers"
 
+[project.scripts]
+covers = "covers.__main__:main"
+
+[dependency-groups]
+benchmark = [
+  "py-cpuinfo>=9.0.0",
+  "scikit-learn>=1.7.2",
+  "tabulate",
+  { include-group = "test" },
+]
+test = [
+  "maturin",
+  "pip",
+  "pytest",
+  "pytest-forked",
+]
+
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
-[tool.uv]
-package = true
-
 [tool.maturin]
-python-source = "src"
 module-name = "covers.covers_core"
+python-source = "src"
 
-[dependency-groups]
-test = [
-    'pytest',
-    'pytest-forked',
-    'maturin',
-    'pip',
-]
-benchmark = [
-    {include-group = 'test'},
-    "py-cpuinfo>=9.0.0",
-    "scikit-learn>=1.7.2",
-    'tabulate',
-]
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+testpaths = ["tests"]
 
 [tool.ruff]
 exclude = ["benchmarks", "tools", "tests/testme*.py", "tests/imported/bad.py"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "--strict-markers"
-
+[tool.uv]
+package = true
