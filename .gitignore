@@ -8,7 +8,6 @@ dist/
 .tox/
 *.swp
 /target/
-uv.lock
 .claude/settings.local.json
 
 # Coverage files
