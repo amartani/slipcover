@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 mod branch;
 mod branch_analysis;
 mod bytecode;
+mod cli;
 mod code_analysis;
 mod covers;
 mod file_matcher;
@@ -20,6 +21,7 @@ mod xmlreport;
 // Re-export main types and functions for the Python module
 use branch::{analyze_branches_ts, decode_branch, encode_branch, is_branch};
 use bytecode::{Branch, Editor, ExceptionTableEntry, LineEntry};
+use cli::{main_cli, parse_args};
 use code_analysis::{branches_from_code, lines_from_code};
 use covers::{Covers, VERSION};
 use file_matcher::FileMatcher;
@@ -36,6 +38,10 @@ pyo3::create_exception!(covers_core, CoversError, pyo3::exceptions::PyException)
 /// Module definition
 #[pymodule]
 fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    // CLI functions
+    m.add_function(wrap_pyfunction!(main_cli, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_args, m)?)?;
+
     // Branch functions
     m.add_function(wrap_pyfunction!(is_branch, m)?)?;
     m.add_function(wrap_pyfunction!(encode_branch, m)?)?;

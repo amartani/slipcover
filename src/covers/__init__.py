@@ -7,7 +7,6 @@ from .covers import (
     print_lcov,
 )
 from .importer import FileMatcher, ImportManager, wrap_pytest
-from .fuzz import wrap_function
 
 __all__ = [
     "__version__",
@@ -19,5 +18,4 @@ __all__ = [
     "FileMatcher",
     "ImportManager",
     "wrap_pytest",
-    "wrap_function",
 ]
