@@ -214,27 +214,24 @@ pub fn main_cli(py: Python, argv: Vec<String>) -> PyResult<i32> {
         cli.script_or_module_args = module_args;
     }
 
-    // Convert to Python dictionary
-    let args = cli.to_pydict(py)?;
-
     // Check if this is a merge operation
-    if args.get_item("merge")?.is_some() {
-        if args.get_item("out")?.is_none() {
+    if cli.merge.is_some() {
+        if cli.out.is_none() {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "--out is required with --merge",
             ));
         }
-        return merge_coverage_files(py, &args);
+        return merge_coverage_files(py, &cli);
     }
 
     // Validate that we have either script or module
-    if args.get_item("script")?.is_none() && args.get_item("module")?.is_none() {
+    if cli.script.is_none() && cli.module.is_none() {
         eprintln!("error: Must specify either a script or -m module");
         return Ok(1);
     }
 
     // Otherwise, run with coverage
-    run_with_coverage(py, &args)
+    run_with_coverage(py, &cli)
 }
 
 /// Parse command-line arguments into a Python dictionary
@@ -267,19 +264,12 @@ pub fn parse_args(py: Python, argv: Vec<String>) -> PyResult<Bound<PyDict>> {
     cli.to_pydict(py)
 }
 
-fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
-    // Get merge files from args
-    let merge_files_obj = args
-        .get_item("merge")?
+fn merge_coverage_files(py: Python, cli: &Cli) -> PyResult<i32> {
+    // Get merge files from cli
+    let merge_files_list = cli
+        .merge
+        .as_ref()
         .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("merge files not specified"))?;
-
-    // Convert to Vec<String>
-    let merge_files_list: Vec<String> = if let Ok(single_file) = merge_files_obj.extract::<String>()
-    {
-        vec![single_file]
-    } else {
-        merge_files_obj.extract::<Vec<String>>()?
-    };
 
     if merge_files_list.is_empty() {
         return Err(pyo3::exceptions::PyValueError::new_err(
@@ -348,34 +338,24 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     }
 
     // Get output file path
-    let out_file_str: String = args
-        .get_item("out")?
-        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("--out is required"))?
-        .extract()?;
+    let out_file_str = cli
+        .out
+        .as_ref()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("--out is required"))?;
 
     // Determine output format and write
-    let branch = args
-        .get_item("branch")?
-        .and_then(|v| v.extract::<bool>().ok())
-        .unwrap_or(false);
-    let xml_package_depth = args
-        .get_item("xml_package_depth")?
-        .and_then(|v| v.extract::<i32>().ok())
-        .unwrap_or(99);
+    let branch = cli.branch;
+    let xml_package_depth = cli.xml_package_depth;
 
     // Open output file for writing (use Python file object for compatibility with print functions)
     let builtins = PyModule::import(py, "builtins")?;
     let open_fn = builtins.getattr("open")?;
     let out_handle = open_fn.call(
-        (out_file_str.clone(), "w"),
+        (out_file_str.as_str(), "w"),
         Some(&[("encoding", "utf-8")].into_py_dict(py)?),
     )?;
 
-    if args
-        .get_item("xml")?
-        .and_then(|v| v.extract::<bool>().ok())
-        .unwrap_or(false)
-    {
+    if cli.xml {
         // XML output using Rust print_xml function
         print_xml(
             py,
@@ -385,11 +365,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
             xml_package_depth,
             Some(out_handle.clone().into()),
         )?;
-    } else if args
-        .get_item("lcov")?
-        .and_then(|v| v.extract::<bool>().ok())
-        .unwrap_or(false)
-    {
+    } else if cli.lcov {
         // LCOV output using Rust print_lcov function
         print_lcov(
             py,
@@ -400,10 +376,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
         )?;
     } else {
         // JSON output using serde_json
-        let pretty_print = args
-            .get_item("pretty_print")?
-            .and_then(|v| v.extract::<bool>().ok())
-            .unwrap_or(false);
+        let pretty_print = cli.pretty_print;
 
         // Convert PyDict to serde_json::Value using pythonize
         let json_value: serde_json::Value =
@@ -432,20 +405,9 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     out_handle.call_method0("close")?;
 
     // Print human-readable table unless silent
-    let silent = args
-        .get_item("silent")?
-        .and_then(|v| v.extract::<bool>().ok())
-        .unwrap_or(false);
-
-    if !silent {
-        let skip_covered = args
-            .get_item("skip_covered")?
-            .and_then(|v| v.extract::<bool>().ok())
-            .unwrap_or(false);
-        let missing_width = args
-            .get_item("missing_width")?
-            .and_then(|v| v.extract::<i32>().ok())
-            .unwrap_or(80);
+    if !cli.silent {
+        let skip_covered = cli.skip_covered;
+        let missing_width = cli.missing_width;
 
         // Get stdout from sys module
         let sys_module = PyModule::import(py, "sys")?;
@@ -462,12 +424,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     }
 
     // Check fail_under threshold
-    let fail_under = args
-        .get_item("fail_under")?
-        .and_then(|v| v.extract::<f64>().ok())
-        .unwrap_or(0.0);
-
-    if fail_under > 0.0 {
+    if cli.fail_under > 0.0 {
         let merged_dict_ref = merged_dict.bind(py);
         let summary = merged_dict_ref
             .get_item("summary")?
@@ -480,7 +437,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
             })?
             .extract()?;
 
-        if percent_covered < fail_under {
+        if percent_covered < cli.fail_under {
             return Ok(2);
         }
     }
@@ -488,14 +445,13 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     Ok(0)
 }
 
-fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
+fn run_with_coverage(py: Python, cli: &Cli) -> PyResult<i32> {
     use pyo3::types::PyModule;
     use std::path::PathBuf;
 
     // Determine base path - always resolve to absolute path
-    let base_path = if let Some(script) = args.get_item("script")? {
-        let script_str: String = script.extract()?;
-        let script_path = PathBuf::from(&script_str);
+    let base_path = if let Some(ref script_str) = cli.script {
+        let script_path = PathBuf::from(script_str);
         let parent = script_path
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
@@ -511,14 +467,12 @@ fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     let file_matcher = file_matcher_class.call0()?;
 
     // Add sources
-    if let Some(source) = args.get_item("source")? {
-        let source_str: String = source.extract()?;
+    if let Some(ref source_str) = cli.source {
         for s in source_str.split(',') {
             file_matcher.call_method1("addSource", (s,))?;
         }
-    } else if let Some(script) = args.get_item("script")? {
-        let script_str: String = script.extract()?;
-        let script_parent = PathBuf::from(&script_str)
+    } else if let Some(ref script_str) = cli.script {
+        let script_parent = PathBuf::from(script_str)
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
@@ -526,53 +480,26 @@ fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     }
 
     // Add omit patterns
-    if let Some(omit) = args.get_item("omit")? {
-        let omit_str: String = omit.extract()?;
+    if let Some(ref omit_str) = cli.omit {
         for o in omit_str.split(',') {
             file_matcher.call_method1("addOmit", (o,))?;
         }
     }
 
     // Extract source list for Covers constructor
-    let source_list = if let Some(source) = args.get_item("source")? {
-        let source_str: String = source.extract()?;
-        Some(
-            source_str
-                .split(',')
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>(),
-        )
-    } else {
-        None
-    };
+    let source_list = cli.source.as_ref().map(|source_str| {
+        source_str
+            .split(',')
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+    });
 
     // Create Covers instance
-    let immediate = args
-        .get_item("immediate")?
-        .and_then(|v| v.extract().ok())
-        .unwrap_or(false);
-    let threshold = args
-        .get_item("threshold")?
-        .and_then(|v| v.extract().ok())
-        .unwrap_or(50);
-    let branch = args
-        .get_item("branch")?
-        .and_then(|v| v.extract().ok())
-        .unwrap_or(false);
-    let dis = args
-        .get_item("dis")?
-        .and_then(|v| v.extract().ok())
-        .unwrap_or(false);
-
     let covers_class = py.import("covers")?.getattr("Covers")?;
-    let sci = covers_class.call1((immediate, threshold, branch, dis, source_list))?;
+    let sci = covers_class.call1((cli.immediate, cli.threshold, cli.branch, cli.dis, source_list))?;
 
     // Wrap pytest if not disabled
-    let dont_wrap_pytest = args
-        .get_item("dont_wrap_pytest")?
-        .and_then(|v| v.extract().ok())
-        .unwrap_or(false);
-    if !dont_wrap_pytest {
+    if !cli.dont_wrap_pytest {
         let covers_module = PyModule::import(py, "covers")?;
         let wrap_pytest = covers_module.getattr("wrap_pytest")?;
         wrap_pytest.call1((&sci, &file_matcher))?;
@@ -584,29 +511,25 @@ fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
 
     if system != "Windows" {
         // Set up fork and exit shims
-        setup_fork_handling(py, &sci, args)?;
+        setup_fork_handling(py, &sci)?;
     }
 
     // Set up atexit handler for coverage output
-    setup_atexit_handler(py, &sci, args, &base_path)?;
+    setup_atexit_handler(py, &sci, cli, &base_path)?;
 
     // Run script or module
-    if let Some(script) = args.get_item("script")? {
-        run_script(py, &sci, &file_matcher, args, &script)?;
+    if cli.script.is_some() {
+        run_script(py, &sci, &file_matcher, cli)?;
     } else {
-        run_module(py, &sci, &file_matcher, args)?;
+        run_module(py, &sci, &file_matcher, cli)?;
     }
 
     // Check fail_under threshold
-    let fail_under = args
-        .get_item("fail_under")?
-        .and_then(|v| v.extract::<f64>().ok())
-        .unwrap_or(0.0);
-    if fail_under > 0.0 {
+    if cli.fail_under > 0.0 {
         let cov = sci.call_method0("get_coverage")?;
         let summary = cov.get_item("summary")?;
         let percent_covered: f64 = summary.get_item("percent_covered")?.extract()?;
-        if percent_covered < fail_under {
+        if percent_covered < cli.fail_under {
             return Ok(2);
         }
     }
@@ -614,7 +537,7 @@ fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     Ok(0)
 }
 
-fn setup_fork_handling(py: Python, sci: &Bound<PyAny>, _args: &Bound<PyDict>) -> PyResult<()> {
+fn setup_fork_handling(py: Python, sci: &Bound<PyAny>) -> PyResult<()> {
     // Import the runner module for fork/exit shims
     let runner_module = PyModule::import(py, "covers.runner")?;
     let fork_shim = runner_module.getattr("fork_shim")?;
@@ -636,14 +559,16 @@ fn setup_fork_handling(py: Python, sci: &Bound<PyAny>, _args: &Bound<PyDict>) ->
 fn setup_atexit_handler(
     py: Python,
     sci: &Bound<PyAny>,
-    args: &Bound<PyDict>,
+    cli: &Cli,
     base_path: &std::path::Path,
 ) -> PyResult<()> {
     use pyo3::types::PyModule;
     use std::ffi::CString;
 
+    // Convert Cli to PyDict for the Python callback
+    let args_dict = cli.to_pydict(py)?;
+
     // Create the atexit callback
-    let args_clone = args.clone();
     let sci_clone = sci.clone();
     let base_path_str = base_path.to_string_lossy().to_string();
 
@@ -703,7 +628,7 @@ def sci_atexit():
 
     // Execute the callback definition with args, sci, and base_path in the namespace
     let globals = pyo3::types::PyDict::new(py);
-    globals.set_item("_args", &args_clone)?;
+    globals.set_item("_args", &args_dict)?;
     globals.set_item("_sci", &sci_clone)?;
     globals.set_item("_base_path", base_path_str)?;
 
@@ -721,30 +646,29 @@ fn run_script(
     py: Python,
     sci: &Bound<PyAny>,
     file_matcher: &Bound<PyAny>,
-    args: &Bound<PyDict>,
-    script: &Bound<PyAny>,
+    cli: &Cli,
 ) -> PyResult<()> {
     use pyo3::types::{PyDict, PyString};
     use std::fs;
     use std::path::PathBuf;
 
-    let script_str: String = script.extract()?;
-    let script_path = PathBuf::from(&script_str);
+    let script_str = cli
+        .script
+        .as_ref()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("script not specified"))?;
+    let script_path = PathBuf::from(script_str);
 
     // Python globals for the script being executed
     let script_globals = PyDict::new(py);
     script_globals.set_item("__name__", "__main__")?;
-    script_globals.set_item("__file__", script_str.clone())?;
+    script_globals.set_item("__file__", script_str.as_str())?;
 
     // Set up sys.argv
     let sys_module = PyModule::import(py, "sys")?;
-    let argv = PyList::new(py, &[PyString::new(py, &script_str)])?;
+    let argv = PyList::new(py, &[PyString::new(py, script_str.as_str())])?;
 
-    if let Some(script_args) = args.get_item("script_or_module_args")? {
-        let script_args_list: Vec<String> = script_args.extract()?;
-        for arg in script_args_list {
-            argv.append(PyString::new(py, &arg))?;
-        }
+    for arg in &cli.script_or_module_args {
+        argv.append(PyString::new(py, arg))?;
     }
     sys_module.setattr("argv", argv)?;
 
@@ -763,15 +687,11 @@ fn run_script(
     })?;
 
     // Check if we need to apply branch pre-instrumentation
-    let branch = args
-        .get_item("branch")?
-        .and_then(|v| v.extract().ok())
-        .unwrap_or(false);
     let matches: bool = file_matcher
-        .call_method1("matches", (script_str.clone(),))?
+        .call_method1("matches", (script_str.as_str(),))?
         .extract()?;
 
-    let code = if branch && matches {
+    let code = if cli.branch && matches {
         // Apply branch pre-instrumentation
         let branch_module = PyModule::import(py, "covers.branch")?;
         let preinstrument = branch_module.getattr("preinstrument")?;
@@ -823,15 +743,15 @@ fn run_module(
     py: Python,
     sci: &Bound<PyAny>,
     file_matcher: &Bound<PyAny>,
-    args: &Bound<PyDict>,
+    cli: &Cli,
 ) -> PyResult<()> {
     use pyo3::types::{PyList, PyString};
 
     // Get module name
-    let module_obj = args
-        .get_item("module")?
+    let module_list = cli
+        .module
+        .as_ref()
         .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("module not specified"))?;
-    let module_list: Vec<String> = module_obj.extract()?;
     let module_name = module_list
         .first()
         .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("module list is empty"))?;
@@ -840,11 +760,8 @@ fn run_module(
     let sys_module = PyModule::import(py, "sys")?;
     let argv = PyList::new(py, &[PyString::new(py, module_name)])?;
 
-    if let Some(script_args) = args.get_item("script_or_module_args")? {
-        let script_args_list: Vec<String> = script_args.extract()?;
-        for arg in script_args_list {
-            argv.append(PyString::new(py, &arg))?;
-        }
+    for arg in &cli.script_or_module_args {
+        argv.append(PyString::new(py, arg))?;
     }
     sys_module.setattr("argv", argv)?;
 
