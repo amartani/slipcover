@@ -88,7 +88,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "covers"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "ahash",
  "chrono",
@@ -97,6 +97,7 @@ dependencies = [
  "pyo3",
  "quick-xml",
  "regex",
+ "serde_json",
  "tabled",
  "tree-sitter",
  "tree-sitter-python",
