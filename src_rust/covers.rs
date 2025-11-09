@@ -12,7 +12,8 @@ use chrono::SecondsFormat;
 use chrono::prelude::*;
 use pyo3::exceptions::{PyIOError, PyOSError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PySet, PyTuple};
+use pyo3::types::{PyAny, PyCode, PyCodeInput, PyCFunction, PyDict, PyList, PyModule, PySet, PyTuple};
+use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -515,10 +516,13 @@ impl Covers {
         let content = std::fs::read_to_string(path)
             .map_err(|e| PyIOError::new_err(format!("Failed to read file {}: {}", filename, e)))?;
 
-        // Compile the source directly using Python's compile built-in
-        let builtins = PyModule::import(py, "builtins")?;
-        let compile_fn = builtins.getattr("compile")?;
-        let code = compile_fn.call1((&content, filename, "exec"))?;
+        // Compile the source using PyCode::compile (safe PyO3 API)
+        let c_content = CString::new(content.as_str())
+            .map_err(|e| PyIOError::new_err(format!("Invalid source content: {}", e)))?;
+        let c_filename = CString::new(filename)
+            .map_err(|e| PyIOError::new_err(format!("Invalid filename: {}", e)))?;
+
+        let code = PyCode::compile(py, &c_content, &c_filename, PyCodeInput::File)?;
 
         // Extract lines using lines_from_code
         let lines = lines_from_code(py, &code)?;
