@@ -98,7 +98,7 @@ run = '''
   cargo test
 
   # Run Python tests with Python coverage (this will also exercise Rust code)
-  uv run -- maturin develop --uv
+  uv run --group test -- maturin develop --uv
   uv run --group test -- covers --lcov --out coverage_py.lcov -m pytest
 
   # Generate Rust coverage report from all profraw files (includes coverage from Python tests)
