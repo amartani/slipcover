@@ -354,7 +354,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     {
         // XML output
         let print_xml_fn = covers_module.getattr("print_xml")?;
-        let source_paths_list = PyList::new(py, &[base_path.clone()])?;
+        let source_paths_list = PyList::new(py, std::slice::from_ref(&base_path))?;
         print_xml_fn.call(
             (),
             Some(
@@ -378,7 +378,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     {
         // LCOV output
         let print_lcov_fn = covers_module.getattr("print_lcov")?;
-        let source_paths_list = PyList::new(py, &[base_path.clone()])?;
+        let source_paths_list = PyList::new(py, std::slice::from_ref(&base_path))?;
         print_lcov_fn.call(
             (),
             Some(
