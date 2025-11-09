@@ -1,8 +1,8 @@
 [tools]
-ruff = "latest"
+ruff = "0.14"
 python = "3.14"
 uv = "latest"
-rust = { version = "1.91.0", profile = "default" }
+rust = { version = "1.91", profile = "default", components = "llvm-tools-preview" }
 
 [tasks.python_lint]
 description = "Run Python linting with ruff"
@@ -26,38 +26,61 @@ depends = ["python_lint", "rust_lint"]
 description = "Run pytest with Python 3.12"
 tools.python = "3.12"
 usage = 'arg "[files]" var=#true help="Files to test"'
-run = "uv tool run --with tox-uv tox -q -e py312 -- ${usage_files}"
+run = "uv run --python 3.12 --group test pytest -- ${usage_files}"
 
 [tasks.test_py313]
 description = "Run pytest with Python 3.13"
 tools.python = "3.13"
 usage = 'arg "[files]" var=#true help="Files to test"'
-run = "uv tool run --with tox-uv tox -q -e py313 -- ${usage_files}"
+run = "uv run --python 3.13 --group test pytest -- ${usage_files}"
 
 [tasks.test_py314]
 description = "Run pytest with Python 3.14"
 tools.python = "3.14"
 alias = "test"
 usage = 'arg "[files]" var=#true help="Files to test"'
-run = "uv tool run --with tox-uv tox -q -e py314 -- ${usage_files}"
+run = "uv run --python 3.14 --group test pytest -- ${usage_files}"
 
 [tasks.test_all_versions]
 description = "Run tests on all Python versions (3.12, 3.13, 3.14)"
 usage = 'arg "[files]" var=#true help="Files to test"'
-run = "mise run test_py312 ${usage_files} ::: test_py313 ${usage_files} ::: test_py314 ${usage_files}"
+run = ["mise run test_py312 ${usage_files}",
+       "mise run test_py313 ${usage_files}",
+       "mise run test_py314 ${usage_files}"]
 
 [tasks.build]
 description = "Builds the project (in development mode)"
 run = "uv build"
 
+[tasks.clean]
+description = "Clean build artifacts and caches"
+run = [
+  "rm -rf *.so src/covers/*.so || true",
+  "rm -rf src/*.egg-info || true",
+  "rm -rf build dist target || true",
+  "find . -iname __pycache__ -exec rm -r '{}' \\+ || true",
+  "rm -rf .pytest_cache || true",
+]
+
+[tasks.benchmark]
+description = "Run benchmarks"
+run = [
+  "uv run --group benchmark -- python benchmarks/benchmarks.py run",
+]
+
+[tasks.plot]
+description = "Generate benchmark plots"
+run = [
+  "uv run --group benchmark -- python benchmarks/benchmarks.py plot --os=Linux --python=3.14.0 --out benchmarks/cpython.png --speedup --title \"Covers Coverage Speedup on CPython (higher is better)\" --bar-labels --edit-readme \"CPython-range\"",
+]
+
 [tasks.coverage]
 description = "Run code coverage for Python and Rust"
+tools."github:taiki-e/cargo-llvm-cov" = "latest"
+
 run = '''
   # Clean up old coverage files
   rm -f coverage_py.lcov coverage_rust.lcov coverage.lcov
-
-  # Install cargo-llvm-cov if not present
-  cargo install cargo-llvm-cov --quiet 2>/dev/null || true
 
   # Set up environment variables for Rust instrumentation coverage
   eval "$(cargo llvm-cov show-env --export-prefix 2>/dev/null | grep '^export')"
@@ -68,11 +91,9 @@ run = '''
   # Run Rust tests with coverage instrumentation
   cargo test
 
-  # Build the Python extension with Rust instrumentation enabled
-  uv run --with maturin maturin develop --uv
-
   # Run Python tests with Python coverage (this will also exercise Rust code)
-  uv run --with pytest --with pytest-forked python -m covers --lcov --out coverage_py.lcov -m pytest || true
+  uv run -- maturin develop --uv
+  uv run --group test -- covers --lcov --out coverage_py.lcov -m pytest
 
   # Generate Rust coverage report from all profraw files (includes coverage from Python tests)
   cargo llvm-cov report --lcov --output-path coverage_rust.lcov
