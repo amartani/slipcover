@@ -261,7 +261,7 @@ pub fn parse_args(py: Python, argv: Vec<String>) -> PyResult<Bound<PyDict>> {
 
 fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     // Import the runner module which has the merge logic
-    let runner_module = PyModule::import(py, "covers.__runner__")?;
+    let runner_module = PyModule::import(py, "covers.runner")?;
     let merge_fn = runner_module.getattr("merge_coverage_files")?;
 
     // Call the Python merge function
@@ -271,7 +271,7 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
 
 fn run_with_coverage(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
     // Import the runner module
-    let runner_module = PyModule::import(py, "covers.__runner__")?;
+    let runner_module = PyModule::import(py, "covers.runner")?;
     let run_fn = runner_module.getattr("run_with_coverage")?;
 
     // Call the Python runner function
