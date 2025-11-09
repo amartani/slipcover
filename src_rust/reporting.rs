@@ -2,10 +2,9 @@
 // Based on the original Python covers.py module (reporting part)
 
 use crate::schemas::{FileCoverageData, FileSummary};
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyModule};
-use std::collections::HashSet;
 use tabled::{Table, Tabled, settings::Style};
 
 // Import CoversError from lib.rs
@@ -17,8 +16,8 @@ pub fn format_missing(
     executed_lines: &[i32],
     missing_branches: &[(i32, i32)],
 ) -> String {
-    let missing_set: HashSet<i32> = missing_lines.iter().copied().collect();
-    let executed_set: HashSet<i32> = executed_lines.iter().copied().collect();
+    let missing_set: AHashSet<i32> = missing_lines.iter().copied().collect();
+    let executed_set: AHashSet<i32> = executed_lines.iter().copied().collect();
 
     // Filter out branches where both endpoints are missing
     let mut branches: Vec<(i32, i32)> = missing_branches
@@ -669,7 +668,7 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
             };
 
         // Merge executed lines
-        let mut executed_lines_set: HashSet<i32> = HashSet::new();
+        let mut executed_lines_set: AHashSet<i32> = AHashSet::new();
         for item in a_executed_lines.cast::<pyo3::types::PyList>()?.iter() {
             executed_lines_set.insert(item.extract::<i32>()?);
         }
@@ -678,7 +677,7 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
         }
 
         // Merge missing lines
-        let mut missing_lines_set: HashSet<i32> = HashSet::new();
+        let mut missing_lines_set: AHashSet<i32> = AHashSet::new();
         for item in a_missing_lines.cast::<pyo3::types::PyList>()?.iter() {
             missing_lines_set.insert(item.extract::<i32>()?);
         }
@@ -722,7 +721,7 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
                 };
 
             // Merge executed branches (convert to tuples for comparison)
-            let mut executed_branches_set: HashSet<(i32, i32)> = HashSet::new();
+            let mut executed_branches_set: AHashSet<(i32, i32)> = AHashSet::new();
             for item in a_executed_branches.cast::<pyo3::types::PyList>()?.iter() {
                 let br_list: &Bound<pyo3::types::PyList> = item.cast()?;
                 let br = (
@@ -741,7 +740,7 @@ pub fn merge_coverage(py: Python, a: &Bound<PyDict>, b: &Bound<PyDict>) -> PyRes
             }
 
             // Merge missing branches
-            let mut missing_branches_set: HashSet<(i32, i32)> = HashSet::new();
+            let mut missing_branches_set: AHashSet<(i32, i32)> = AHashSet::new();
             for item in a_missing_branches.cast::<pyo3::types::PyList>()?.iter() {
                 let br_list: &Bound<pyo3::types::PyList> = item.cast()?;
                 let br = (

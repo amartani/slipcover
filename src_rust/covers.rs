@@ -13,7 +13,6 @@ use chrono::prelude::*;
 use pyo3::exceptions::{PyIOError, PyOSError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PySet, PyTuple};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -32,7 +31,7 @@ pub struct Covers {
     #[allow(dead_code)]
     disassemble: bool,
     source: Option<Vec<String>>,
-    instrumented_code_ids: Arc<Mutex<HashSet<usize>>>,
+    instrumented_code_ids: Arc<Mutex<AHashSet<usize>>>,
     tracker: Py<CoverageTracker>,
     modules: Vec<Py<PyAny>>,
 }
@@ -50,7 +49,7 @@ impl Covers {
         source: Option<Vec<String>>,
     ) -> PyResult<Py<Self>> {
         let tracker = Py::new(py, CoverageTracker::new())?;
-        let instrumented_code_ids = Arc::new(Mutex::new(HashSet::new()));
+        let instrumented_code_ids = Arc::new(Mutex::new(AHashSet::new()));
 
         let slf = Py::new(
             py,
@@ -327,7 +326,7 @@ impl Covers {
         let visited_set = visited.bind(py);
         let mut results = Vec::new();
 
-        // Use native Rust HashSet for faster lookups (store Python object pointer addresses)
+        // Use native Rust AHashSet for faster lookups (store Python object pointer addresses)
         let mut visited_native = AHashSet::new();
 
         // Populate native set with existing visited items from Python set
@@ -516,19 +515,44 @@ impl Covers {
         let content = std::fs::read_to_string(path)
             .map_err(|e| PyIOError::new_err(format!("Failed to read file {}: {}", filename, e)))?;
 
-        // Call Python's preinstrument_and_compile from covers.branch module
-        let branch_module = PyModule::import(py, "covers.branch")?;
-        let preinstrument_and_compile = branch_module.getattr("preinstrument_and_compile")?;
-        let code = preinstrument_and_compile.call1((content, filename, self.branch))?;
+        // Compile the source directly using Python's compile built-in
+        let builtins = PyModule::import(py, "builtins")?;
+        let compile_fn = builtins.getattr("compile")?;
+        let code = compile_fn.call1((&content, filename, "exec"))?;
 
-        // Extract lines and branches
+        // Extract lines using lines_from_code
         let lines = lines_from_code(py, &code)?;
         if !lines.is_empty() {
             tracker.add_code_lines(filename.to_string(), lines);
         }
 
+        // For branches, use tree-sitter analysis directly instead of bytecode analysis
         if self.branch {
-            let branches = branches_from_code(py, &code)?;
+            use crate::branch::analyze_branches_ts;
+
+            // Use tree-sitter to analyze branches
+            let branch_data = analyze_branches_ts(py, content)?;
+            let branch_dict = branch_data.bind(py).cast::<PyDict>()?;
+
+            // Extract branches from the tree-sitter analysis result
+            let mut branches = Vec::new();
+            for (branch_line_obj, markers_obj) in branch_dict.iter() {
+                let branch_line: i32 = branch_line_obj.extract()?;
+                let markers_list = markers_obj.cast::<PyList>()?;
+
+                for marker_obj in markers_list.iter() {
+                    let marker_tuple = marker_obj.cast::<PyTuple>()?;
+                    let _insert_line: i32 = marker_tuple.get_item(0)?.extract()?;
+                    let to_line: i32 = marker_tuple.get_item(1)?.extract()?;
+
+                    // Add the branch (from branch_line to to_line)
+                    // Skip branches where to_line is 0 (these are inserted into orelse and handled separately)
+                    if to_line != 0 {
+                        branches.push((branch_line, to_line));
+                    }
+                }
+            }
+
             if !branches.is_empty() {
                 tracker.add_code_branches(filename.to_string(), branches);
             }

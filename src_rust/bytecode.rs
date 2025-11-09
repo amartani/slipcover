@@ -3,9 +3,9 @@
 // This module provides tools for analyzing and modifying Python bytecode,
 // including branch instructions, exception tables, and line number tables.
 
+use ahash::AHashSet;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList, PyModule, PyTuple};
-use std::collections::HashSet;
 
 /// Python 3.10a7 changed branch opcodes' argument to mean instruction
 /// (word) offset, rather than bytecode offset.
@@ -110,9 +110,9 @@ pub struct Opcodes {
     pub store_global: u8,
     pub inline_cache_entries: Py<PyDict>,
     #[allow(dead_code)] // Reserved for potential future use
-    pub hasjrel: HashSet<u8>,
+    pub hasjrel: AHashSet<u8>,
     #[allow(dead_code)] // Reserved for potential future use
-    pub hasjabs: HashSet<u8>,
+    pub hasjabs: AHashSet<u8>,
     #[allow(dead_code)] // Reserved for potential future use
     pub opname: Py<PyList>,
 }
@@ -144,8 +144,8 @@ impl Opcodes {
         // Get hasjrel and hasjabs as sets
         let hasjrel_list = dis.getattr("hasjrel")?.extract::<Vec<u8>>()?;
         let hasjabs_list = dis.getattr("hasjabs")?.extract::<Vec<u8>>()?;
-        let hasjrel: HashSet<u8> = hasjrel_list.into_iter().collect();
-        let hasjabs: HashSet<u8> = hasjabs_list.into_iter().collect();
+        let hasjrel: AHashSet<u8> = hasjrel_list.into_iter().collect();
+        let hasjabs: AHashSet<u8> = hasjabs_list.into_iter().collect();
 
         let opname = dis.getattr("opname")?.extract::<Py<PyList>>()?;
 
@@ -393,7 +393,7 @@ impl Branch {
         let hasjrel = dis.getattr("hasjrel")?.extract::<Vec<u8>>()?;
         let hasjabs = dis.getattr("hasjabs")?.extract::<Vec<u8>>()?;
 
-        let mut branch_opcodes = HashSet::new();
+        let mut branch_opcodes = AHashSet::new();
         for op in hasjrel {
             branch_opcodes.insert(op);
         }
