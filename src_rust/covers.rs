@@ -12,7 +12,9 @@ use chrono::SecondsFormat;
 use chrono::prelude::*;
 use pyo3::exceptions::{PyIOError, PyOSError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyCode, PyCodeInput, PyCFunction, PyDict, PyList, PyModule, PySet, PyTuple};
+use pyo3::types::{
+    PyAny, PyCFunction, PyCode, PyCodeInput, PyDict, PyList, PyModule, PySet, PyTuple,
+};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -336,9 +338,12 @@ impl Covers {
         }
 
         // Convert to list first to handle dict_values and other iterables
-        let builtins = PyModule::import(py, "builtins")?;
-        let list_fn = builtins.getattr("list")?;
-        let items_list: Vec<Py<PyAny>> = list_fn.call1((items,))?.extract()?;
+        // Use native iteration instead of calling builtins.list
+        let items_list: Vec<Py<PyAny>> = items
+            .bind(py)
+            .try_iter()?
+            .map(|item| item.map(|i| i.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
 
         for item in items_list {
             Self::find_funcs_recursive(
@@ -597,11 +602,8 @@ impl Covers {
             if !visited.contains(&root_ptr) {
                 visited.insert(root_ptr);
 
-                // Get dir() of the object
-                let builtins = PyModule::import(py, "builtins")?;
-                let dir_fn = builtins.getattr("dir")?;
-                let dir_result = dir_fn.call1((root_bound,))?;
-                let obj_names: Vec<String> = dir_result.extract()?;
+                // Get dir() of the object using native PyO3 method
+                let obj_names: Vec<String> = root_bound.dir()?.extract()?;
 
                 // Build MRO
                 let mro = root_bound.getattr("__mro__")?;
