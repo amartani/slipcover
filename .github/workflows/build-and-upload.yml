@@ -1,6 +1,7 @@
 #
-# When executed manually, this will upload a ".devNNN" build to testpypi;
-# when executed upon a release, it will upload a regular build to pypi.
+# On push to main: uploads a ".devNNN" build to production pypi
+# When executed manually: uploads a ".devNNN" build to testpypi
+# On release: uploads a regular build to production pypi
 #
 name: build & upload
 
@@ -8,6 +9,9 @@ on:
   release:
     types: [ published ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   pick-devN:
@@ -54,6 +58,25 @@ jobs:
         with:
           name: devN
 
+      - name: Modify version for dev build
+        if: github.event_name != 'release'
+        shell: bash
+        run: |
+          DEV_N=$(cat dev-build.txt)
+          # Read current version from Cargo.toml
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          # Append .devN to the version
+          NEW_VERSION="${CURRENT_VERSION}.dev${DEV_N}"
+          echo "Updating version from ${CURRENT_VERSION} to ${NEW_VERSION}"
+          # Update Cargo.toml with the new version (portable across Linux, macOS, Windows)
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s/^version = \"${CURRENT_VERSION}\"/version = \"${NEW_VERSION}\"/" Cargo.toml
+          else
+            sed -i "s/^version = \"${CURRENT_VERSION}\"/version = \"${NEW_VERSION}\"/" Cargo.toml
+          fi
+          # Verify the change
+          grep '^version = ' Cargo.toml | head -1
+
       - name: Build wheels (x86_64)
         if: matrix.target == 'x86_64'
         run: maturin build --release --out dist
@@ -97,8 +120,8 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Publish to TestPyPI (dev builds)
-        if: github.event_name != 'release'
+      - name: Publish to TestPyPI (manual dev builds)
+        if: github.event_name == 'workflow_dispatch'
         uses: PyO3/maturin-action@v1
         with:
           command: upload
@@ -106,8 +129,8 @@ jobs:
         env:
           MATURIN_REPOSITORY: testpypi
 
-      - name: Publish to PyPI (releases)
-        if: github.event_name == 'release'
+      - name: Publish to PyPI (releases and main branch)
+        if: github.event_name == 'release' || github.event_name == 'push'
         uses: PyO3/maturin-action@v1
         with:
           command: upload
