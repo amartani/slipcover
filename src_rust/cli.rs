@@ -4,6 +4,14 @@
 use clap::Parser;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict, PyList, PyModule};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+
+// Import coverage reporting functions
+use crate::lcovreport::print_lcov;
+use crate::reporting::{merge_coverage, print_coverage};
+use crate::xmlreport::print_xml;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -260,9 +268,6 @@ pub fn parse_args(py: Python, argv: Vec<String>) -> PyResult<Bound<PyDict>> {
 }
 
 fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
-    use pyo3::types::PyList;
-    use std::path::{Path, PathBuf};
-
     // Get merge files from args
     let merge_files_obj = args
         .get_item("merge")?
@@ -291,38 +296,55 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
         .to_string_lossy()
         .to_string();
 
-    // Load the first file as the base coverage - use Python's json module
-    let json_module = PyModule::import(py, "json")?;
-    let json_load = json_module.getattr("load")?;
-
+    // Load the first file as the base coverage using native Rust file I/O and serde_json
     let first_file_str = merge_files[0].to_string_lossy().to_string();
-    let builtins = PyModule::import(py, "builtins")?;
-    let open_fn = builtins.getattr("open")?;
-    let first_file_handle = open_fn.call1((first_file_str.clone(),))?;
-
-    let merged_dict = json_load.call1((&first_file_handle,))?;
-    first_file_handle.call_method0("close")?;
-
-    let merged_dict: &Bound<PyDict> = merged_dict.cast().map_err(|_| {
-        pyo3::exceptions::PyValueError::new_err(format!(
-            "Error: {} is not a valid JSON object",
-            first_file_str
-        ))
+    let first_file = File::open(&merge_files[0]).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to open {}: {}", first_file_str, e))
+    })?;
+    let first_reader = BufReader::new(first_file);
+    let first_json: serde_json::Value = serde_json::from_reader(first_reader).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("Error parsing {}: {}", first_file_str, e))
     })?;
 
-    // Import merge_coverage function
-    let covers_module = PyModule::import(py, "covers")?;
-    let merge_coverage_fn = covers_module.getattr("merge_coverage")?;
+    // Convert serde_json::Value to Python dict using pythonize
+    let merged_dict: Py<PyDict> = pythonize::pythonize(py, &first_json)
+        .map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Error converting {} to Python dict: {}",
+                first_file_str, e
+            ))
+        })?
+        .extract()?;
 
     // Merge additional files
     for merge_file in merge_files.iter().skip(1) {
         let merge_file_str = merge_file.to_string_lossy().to_string();
-        let file_handle = open_fn.call1((merge_file_str.clone(),))?;
-        let coverage_dict = json_load.call1((&file_handle,))?;
-        file_handle.call_method0("close")?;
+        let file = File::open(merge_file).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!(
+                "Failed to open {}: {}",
+                merge_file_str, e
+            ))
+        })?;
+        let reader = BufReader::new(file);
+        let json_value: serde_json::Value = serde_json::from_reader(reader).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Error parsing {}: {}",
+                merge_file_str, e
+            ))
+        })?;
 
-        // Merge into merged_dict
-        merge_coverage_fn.call1((merged_dict, coverage_dict))?;
+        // Convert to Python dict
+        let coverage_dict: Py<PyDict> = pythonize::pythonize(py, &json_value)
+            .map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Error converting {} to Python dict: {}",
+                    merge_file_str, e
+                ))
+            })?
+            .extract()?;
+
+        // Merge into merged_dict using the Rust merge_coverage function
+        merge_coverage(py, merged_dict.bind(py), coverage_dict.bind(py))?;
     }
 
     // Get output file path
@@ -341,7 +363,9 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
         .and_then(|v| v.extract::<i32>().ok())
         .unwrap_or(99);
 
-    // Open output file for writing
+    // Open output file for writing (use Python file object for compatibility with print functions)
+    let builtins = PyModule::import(py, "builtins")?;
+    let open_fn = builtins.getattr("open")?;
     let out_handle = open_fn.call(
         (out_file_str.clone(), "w"),
         Some(&[("encoding", "utf-8")].into_py_dict(py)?),
@@ -352,61 +376,57 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
         .and_then(|v| v.extract::<bool>().ok())
         .unwrap_or(false)
     {
-        // XML output
-        let print_xml_fn = covers_module.getattr("print_xml")?;
-        let source_paths_list = PyList::new(py, std::slice::from_ref(&base_path))?;
-        print_xml_fn.call(
-            (),
-            Some(
-                &[
-                    ("coverage", merged_dict.as_any()),
-                    ("source_paths", source_paths_list.as_any()),
-                    ("with_branches", branch.into_pyobject(py)?.as_any()),
-                    (
-                        "xml_package_depth",
-                        xml_package_depth.into_pyobject(py)?.as_any(),
-                    ),
-                    ("outfile", &out_handle),
-                ]
-                .into_py_dict(py)?,
-            ),
+        // XML output using Rust print_xml function
+        print_xml(
+            py,
+            merged_dict.bind(py),
+            vec![base_path.clone()],
+            branch,
+            xml_package_depth,
+            Some(out_handle.clone().into()),
         )?;
     } else if args
         .get_item("lcov")?
         .and_then(|v| v.extract::<bool>().ok())
         .unwrap_or(false)
     {
-        // LCOV output
-        let print_lcov_fn = covers_module.getattr("print_lcov")?;
-        let source_paths_list = PyList::new(py, std::slice::from_ref(&base_path))?;
-        print_lcov_fn.call(
-            (),
-            Some(
-                &[
-                    ("coverage", merged_dict.as_any()),
-                    ("source_paths", source_paths_list.as_any()),
-                    ("with_branches", branch.into_pyobject(py)?.as_any()),
-                    ("outfile", &out_handle),
-                ]
-                .into_py_dict(py)?,
-            ),
+        // LCOV output using Rust print_lcov function
+        print_lcov(
+            py,
+            merged_dict.bind(py),
+            vec![base_path.clone()],
+            branch,
+            Some(out_handle.clone().into()),
         )?;
     } else {
-        // JSON output (default)
+        // JSON output using serde_json
         let pretty_print = args
             .get_item("pretty_print")?
             .and_then(|v| v.extract::<bool>().ok())
             .unwrap_or(false);
 
-        let json_dump = json_module.getattr("dump")?;
-        if pretty_print {
-            json_dump.call(
-                (merged_dict, &out_handle),
-                Some(&[("indent", 4)].into_py_dict(py)?),
-            )?;
+        // Convert PyDict to serde_json::Value using pythonize
+        let json_value: serde_json::Value =
+            pythonize::depythonize(merged_dict.bind(py)).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Error converting coverage to JSON: {}",
+                    e
+                ))
+            })?;
+
+        // Write JSON to file using serde_json
+        let json_str = if pretty_print {
+            serde_json::to_string_pretty(&json_value).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("Error serializing JSON: {}", e))
+            })?
         } else {
-            json_dump.call1((merged_dict, &out_handle))?;
-        }
+            serde_json::to_string(&json_value).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("Error serializing JSON: {}", e))
+            })?
+        };
+
+        // Write to Python file object
+        out_handle.call_method1("write", (json_str,))?;
     }
 
     out_handle.call_method0("close")?;
@@ -418,7 +438,6 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
         .unwrap_or(false);
 
     if !silent {
-        let print_coverage_fn = covers_module.getattr("print_coverage")?;
         let skip_covered = args
             .get_item("skip_covered")?
             .and_then(|v| v.extract::<bool>().ok())
@@ -428,23 +447,17 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
             .and_then(|v| v.extract::<i32>().ok())
             .unwrap_or(80);
 
+        // Get stdout from sys module
         let sys_module = PyModule::import(py, "sys")?;
         let stdout = sys_module.getattr("stdout")?;
 
-        print_coverage_fn.call(
-            (),
-            Some(
-                &[
-                    ("coverage", merged_dict.as_any()),
-                    ("outfile", stdout.as_any()),
-                    ("skip_covered", skip_covered.into_pyobject(py)?.as_any()),
-                    (
-                        "missing_width",
-                        (missing_width as usize).into_pyobject(py)?.as_any(),
-                    ),
-                ]
-                .into_py_dict(py)?,
-            ),
+        // Use Rust print_coverage function
+        print_coverage(
+            py,
+            merged_dict.bind(py),
+            Some(stdout.into()),
+            Some(missing_width as usize),
+            skip_covered,
         )?;
     }
 
@@ -455,7 +468,8 @@ fn merge_coverage_files(py: Python, args: &Bound<PyDict>) -> PyResult<i32> {
         .unwrap_or(0.0);
 
     if fail_under > 0.0 {
-        let summary = merged_dict
+        let merged_dict_ref = merged_dict.bind(py);
+        let summary = merged_dict_ref
             .get_item("summary")?
             .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("coverage has no summary"))?;
         let summary_dict: &Bound<PyDict> = summary.cast()?;
