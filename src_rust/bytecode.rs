@@ -3,7 +3,7 @@
 // This module provides tools for analyzing and modifying Python bytecode,
 // including branch instructions, exception tables, and line number tables.
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList, PyModule, PyTuple};
 
@@ -108,13 +108,13 @@ pub struct Opcodes {
     pub nop: u8,
     pub store_name: u8,
     pub store_global: u8,
-    pub inline_cache_entries: Py<PyDict>,
+    pub inline_cache_entries: AHashMap<u8, usize>,
     #[allow(dead_code)] // Reserved for potential future use
     pub hasjrel: AHashSet<u8>,
     #[allow(dead_code)] // Reserved for potential future use
     pub hasjabs: AHashSet<u8>,
     #[allow(dead_code)] // Reserved for potential future use
-    pub opname: Py<PyList>,
+    pub opname: Vec<String>,
 }
 
 impl Opcodes {
@@ -137,9 +137,15 @@ impl Opcodes {
         let store_name = opmap.get_item("STORE_NAME")?.extract::<u8>()?;
         let store_global = opmap.get_item("STORE_GLOBAL")?.extract::<u8>()?;
 
-        let inline_cache_entries = dis
-            .getattr("_inline_cache_entries")?
-            .extract::<Py<PyDict>>()?;
+        // Convert Python dict to Rust HashMap
+        let inline_cache_entries_py = dis.getattr("_inline_cache_entries")?;
+        let mut inline_cache_entries = AHashMap::new();
+        let cache_dict: &Bound<PyDict> = inline_cache_entries_py.cast()?;
+        for item in cache_dict.items() {
+            let key: u8 = item.get_item(0)?.extract()?;
+            let value: usize = item.get_item(1)?.extract()?;
+            inline_cache_entries.insert(key, value);
+        }
 
         // Get hasjrel and hasjabs as sets
         let hasjrel_list = dis.getattr("hasjrel")?.extract::<Vec<u8>>()?;
@@ -147,7 +153,9 @@ impl Opcodes {
         let hasjrel: AHashSet<u8> = hasjrel_list.into_iter().collect();
         let hasjabs: AHashSet<u8> = hasjabs_list.into_iter().collect();
 
-        let opname = dis.getattr("opname")?.extract::<Py<PyList>>()?;
+        // Convert Python list to Rust Vec
+        let opname_py = dis.getattr("opname")?;
+        let opname: Vec<String> = opname_py.extract()?;
 
         Ok(Opcodes {
             extended_arg,
@@ -171,12 +179,8 @@ impl Opcodes {
     }
 
     /// Get inline cache entry count for an opcode
-    pub fn get_inline_cache_entries(&self, py: Python, opcode: u8) -> PyResult<usize> {
-        let cache_dict = self.inline_cache_entries.bind(py);
-        match cache_dict.get_item(opcode)? {
-            Some(val) => val.extract::<usize>(),
-            None => Ok(0),
-        }
+    pub fn get_inline_cache_entries(&self, opcode: u8) -> usize {
+        *self.inline_cache_entries.get(&opcode).unwrap_or(&0)
     }
 
     /// Check if opcode is EXTENDED_ARG
@@ -186,13 +190,7 @@ impl Opcodes {
 }
 
 /// Emits an opcode and its (variable length) argument
-pub fn opcode_arg(
-    py: Python,
-    opcodes: &Opcodes,
-    opcode: u8,
-    arg: i32,
-    min_ext: i32,
-) -> PyResult<Vec<u8>> {
+pub fn opcode_arg(opcodes: &Opcodes, opcode: u8, arg: i32, min_ext: i32) -> Vec<u8> {
     let mut bytecode = Vec::new();
     let ext = std::cmp::max(arg_ext_needed(arg), min_ext);
     assert!(ext <= 3, "Too many EXTENDED_ARG needed");
@@ -205,13 +203,13 @@ pub fn opcode_arg(
     bytecode.push((arg & 0xFF) as u8);
 
     // Add cache entries
-    let cache_count = opcodes.get_inline_cache_entries(py, opcode)?;
+    let cache_count = opcodes.get_inline_cache_entries(opcode);
     for _ in 0..cache_count {
         bytecode.push(opcodes.cache);
         bytecode.push(0);
     }
 
-    Ok(bytecode)
+    bytecode
 }
 
 /// Represents an unpacked opcode with its offset, length, opcode, and argument
@@ -378,47 +376,72 @@ impl Branch {
             self.length >= 2 + 2 * arg_ext_needed(self.arg()),
             "Branch length too small"
         );
-        let bytecode = opcode_arg(py, &opcodes, self.opcode, self.arg(), (self.length - 2) / 2)?;
+        let bytecode = opcode_arg(&opcodes, self.opcode, self.arg(), (self.length - 2) / 2);
         Ok(PyBytes::new(py, &bytecode).into())
     }
 }
 
 // Non-Python methods for internal Rust use
 impl Branch {
-    /// Finds all Branches in code
-    pub fn from_code_impl(py: Python, code: &Bound<PyAny>) -> PyResult<Vec<Branch>> {
-        let co_code_attr = code.getattr("co_code")?;
-        let co_code = co_code_attr.extract::<&[u8]>()?;
+    /// Internal method to create a Branch without calling Python
+    fn new_internal(
+        offset: i32,
+        length: i32,
+        opcode: u8,
+        arg: i32,
+        hasjrel: &AHashSet<u8>,
+        opname: &[String],
+    ) -> Self {
+        let is_relative = hasjrel.contains(&opcode);
+        let opname_str = opname
+            .get(opcode as usize)
+            .map(|s| s.as_str())
+            .unwrap_or("");
+        let is_backward = opname_str.contains("JUMP_BACKWARD");
 
-        let dis = PyModule::import(py, "dis")?;
-        let hasjrel = dis.getattr("hasjrel")?.extract::<Vec<u8>>()?;
-        let hasjabs = dis.getattr("hasjabs")?.extract::<Vec<u8>>()?;
+        let target = if !is_relative {
+            branch2offset(arg)
+        } else {
+            offset + length + branch2offset(if is_backward { -arg } else { arg })
+        };
 
+        Branch {
+            offset,
+            length,
+            opcode,
+            is_relative,
+            is_backward,
+            target,
+        }
+    }
+
+    /// Finds all Branches in bytecode
+    pub fn from_code_impl(co_code: &[u8], opcodes: &Opcodes) -> Vec<Branch> {
         let mut branch_opcodes = AHashSet::new();
-        for op in hasjrel {
-            branch_opcodes.insert(op);
+        for op in &opcodes.hasjrel {
+            branch_opcodes.insert(*op);
         }
-        for op in hasjabs {
-            branch_opcodes.insert(op);
+        for op in &opcodes.hasjabs {
+            branch_opcodes.insert(*op);
         }
 
-        let opcodes = Opcodes::new(py)?;
-        let unpacked = unpack_opargs(co_code, &opcodes);
+        let unpacked = unpack_opargs(co_code, opcodes);
 
         let mut branches = Vec::new();
         for op_data in unpacked {
             if branch_opcodes.contains(&op_data.opcode) {
-                branches.push(Branch::new(
-                    py,
+                branches.push(Branch::new_internal(
                     op_data.offset as i32,
                     op_data.length as i32,
                     op_data.opcode,
                     op_data.arg,
-                )?);
+                    &opcodes.hasjrel,
+                    &opcodes.opname,
+                ));
             }
         }
 
-        Ok(branches)
+        branches
     }
 }
 
@@ -488,26 +511,23 @@ impl ExceptionTableEntry {
 
 // Non-Python methods for internal Rust use
 impl ExceptionTableEntry {
-    /// Returns a list of exception table entries from a code object
-    pub fn from_code_impl(_py: Python, code: &Bound<PyAny>) -> PyResult<Vec<ExceptionTableEntry>> {
-        let exceptiontable_attr = code.getattr("co_exceptiontable")?;
-        let exceptiontable = exceptiontable_attr.extract::<&[u8]>()?;
-
+    /// Returns a list of exception table entries from exception table bytes
+    pub fn from_code_impl(exceptiontable: &[u8]) -> Result<Vec<ExceptionTableEntry>, String> {
         let mut entries = Vec::new();
         let mut it = exceptiontable.iter().copied();
 
         while let Some(start_val) = read_varint_be(&mut it) {
-            let length = read_varint_be(&mut it).ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid exception table")
-            })?;
+            let length = read_varint_be(&mut it)
+                .ok_or_else(|| "Invalid exception table: missing length".to_string())?;
             let start = branch2offset(start_val as i32);
             let end = start + branch2offset(length as i32);
-            let target = branch2offset(read_varint_be(&mut it).ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid exception table")
-            })? as i32);
-            let other = read_varint_be(&mut it).ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid exception table")
-            })?;
+            let target = branch2offset(
+                read_varint_be(&mut it)
+                    .ok_or_else(|| "Invalid exception table: missing target".to_string())?
+                    as i32,
+            );
+            let other = read_varint_be(&mut it)
+                .ok_or_else(|| "Invalid exception table: missing other".to_string())?;
 
             entries.push(ExceptionTableEntry {
                 start,
@@ -613,21 +633,12 @@ impl LineEntry {
 
 // Non-Python methods for internal Rust use
 impl LineEntry {
-    /// Extracts a list of line entries from byte code
-    pub fn from_code_impl(py: Python, code: &Bound<PyAny>) -> PyResult<Vec<LineEntry>> {
-        let co_code_attr = code.getattr("co_code")?;
-        let co_code = co_code_attr.extract::<&[u8]>()?;
-        let code_len = co_code.len() as i32;
-
-        let dis = PyModule::import(py, "dis")?;
-        let findlinestarts_fn = dis.getattr("findlinestarts")?;
-        let line_iter = findlinestarts_fn.call1((code,))?;
-
+    /// Extracts a list of line entries from line starts
+    pub fn from_code_impl(line_starts: Vec<(i32, i32)>, code_len: i32) -> Vec<LineEntry> {
         let mut lines = Vec::new();
         let mut last: Option<(i32, i32)> = None;
 
-        for item in line_iter.try_iter()? {
-            let tuple = item?.extract::<(i32, i32)>()?;
+        for tuple in line_starts {
             if let Some((last_off, last_line)) = last {
                 lines.push(LineEntry {
                     start: last_off,
@@ -646,7 +657,7 @@ impl LineEntry {
             });
         }
 
-        Ok(lines)
+        lines
     }
 }
 
@@ -730,6 +741,9 @@ impl Editor {
 
         let repl_length = repl_length.unwrap_or(0);
 
+        // Create Opcodes once
+        let opcodes = Opcodes::new(py)?;
+
         if self.patch.is_none() {
             let co_code_attr = self.orig_code.bind(py).getattr("co_code")?;
             let co_code = co_code_attr.extract::<Vec<u8>>()?;
@@ -738,12 +752,32 @@ impl Editor {
 
         if self.branches.is_none() {
             let code_bound = self.orig_code.bind(py);
-            self.branches = Some(Branch::from_code_impl(py, code_bound)?);
-            self.ex_table = ExceptionTableEntry::from_code_impl(py, code_bound)?;
-            self.lines = LineEntry::from_code_impl(py, code_bound)?;
-        }
 
-        let opcodes = Opcodes::new(py)?;
+            // Extract bytecode
+            let co_code_attr = code_bound.getattr("co_code")?;
+            let co_code = co_code_attr.extract::<&[u8]>()?;
+            let code_len = co_code.len() as i32;
+
+            // Extract exception table
+            let exceptiontable_attr = code_bound.getattr("co_exceptiontable")?;
+            let exceptiontable = exceptiontable_attr.extract::<&[u8]>()?;
+
+            // Extract line starts using dis.findlinestarts
+            let dis = PyModule::import(py, "dis")?;
+            let findlinestarts_fn = dis.getattr("findlinestarts")?;
+            let line_iter = findlinestarts_fn.call1((code_bound,))?;
+            let mut line_starts = Vec::new();
+            for item in line_iter.try_iter()? {
+                let tuple = item?.extract::<(i32, i32)>()?;
+                line_starts.push(tuple);
+            }
+
+            // Call refactored from_code_impl functions with native Rust data
+            self.branches = Some(Branch::from_code_impl(co_code, &opcodes));
+            self.ex_table = ExceptionTableEntry::from_code_impl(exceptiontable)
+                .map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
+            self.lines = LineEntry::from_code_impl(line_starts, code_len);
+        }
         let mut insert = vec![
             // NOP for disabling
             opcodes.nop,
@@ -754,30 +788,18 @@ impl Editor {
         ];
 
         // LOAD_CONST for function
-        insert.extend(opcode_arg(py, &opcodes, opcodes.load_const, function, 0)?);
+        insert.extend(opcode_arg(&opcodes, opcodes.load_const, function, 0));
 
         // LOAD_CONST for each argument
         for a in &args {
-            insert.extend(opcode_arg(py, &opcodes, opcodes.load_const, *a, 0)?);
+            insert.extend(opcode_arg(&opcodes, opcodes.load_const, *a, 0));
         }
 
         // PRECALL
-        insert.extend(opcode_arg(
-            py,
-            &opcodes,
-            opcodes.precall,
-            args.len() as i32,
-            0,
-        )?);
+        insert.extend(opcode_arg(&opcodes, opcodes.precall, args.len() as i32, 0));
 
         // CALL
-        insert.extend(opcode_arg(
-            py,
-            &opcodes,
-            opcodes.call,
-            args.len() as i32,
-            0,
-        )?);
+        insert.extend(opcode_arg(&opcodes, opcodes.call, args.len() as i32, 0));
 
         // POP_TOP (ignore return)
         insert.extend([opcodes.pop_top, 0]);
