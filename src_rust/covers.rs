@@ -368,16 +368,6 @@ impl Covers {
         self.modules.push(module);
     }
 
-    #[staticmethod]
-    fn lines_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<i32>> {
-        lines_from_code(py, co.bind(py))
-    }
-
-    #[staticmethod]
-    fn branches_from_code(py: Python, co: Py<PyAny>) -> PyResult<Vec<(i32, i32)>> {
-        branches_from_code(py, co.bind(py))
-    }
-
     /// Add code branches for a file (for pytest integration)
     fn add_code_branches(
         &self,

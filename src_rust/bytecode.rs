@@ -381,12 +381,13 @@ impl Branch {
         let bytecode = opcode_arg(py, &opcodes, self.opcode, self.arg(), (self.length - 2) / 2)?;
         Ok(PyBytes::new(py, &bytecode).into())
     }
+}
 
+// Non-Python methods for internal Rust use
+impl Branch {
     /// Finds all Branches in code
-    #[staticmethod]
-    fn from_code(py: Python, code: Py<PyAny>) -> PyResult<Vec<Branch>> {
-        let code_bound = code.bind(py);
-        let co_code_attr = code_bound.getattr("co_code")?;
+    pub fn from_code_impl(py: Python, code: &Bound<PyAny>) -> PyResult<Vec<Branch>> {
+        let co_code_attr = code.getattr("co_code")?;
         let co_code = co_code_attr.extract::<&[u8]>()?;
 
         let dis = PyModule::import(py, "dis")?;
@@ -459,11 +460,37 @@ impl ExceptionTableEntry {
         }
     }
 
-    /// Returns a list of exception table entries from a code object
+    /// Generates an exception table from a list of entries
     #[staticmethod]
-    fn from_code(py: Python, code: Py<PyAny>) -> PyResult<Vec<ExceptionTableEntry>> {
-        let code_bound = code.bind(py);
-        let exceptiontable_attr = code_bound.getattr("co_exceptiontable")?;
+    fn make_exceptiontable(
+        py: Python,
+        entries: Vec<Py<ExceptionTableEntry>>,
+    ) -> PyResult<Py<PyBytes>> {
+        let mut table = Vec::new();
+
+        for entry_py in entries {
+            let entry = entry_py.borrow(py);
+            table.extend(write_varint_be(
+                offset2branch(entry.start) as u32,
+                Some(0x80),
+            ));
+            table.extend(write_varint_be(
+                offset2branch(entry.end - entry.start) as u32,
+                None,
+            ));
+            table.extend(write_varint_be(offset2branch(entry.target) as u32, None));
+            table.extend(write_varint_be(entry.other, None));
+        }
+
+        Ok(PyBytes::new(py, &table).into())
+    }
+}
+
+// Non-Python methods for internal Rust use
+impl ExceptionTableEntry {
+    /// Returns a list of exception table entries from a code object
+    pub fn from_code_impl(_py: Python, code: &Bound<PyAny>) -> PyResult<Vec<ExceptionTableEntry>> {
+        let exceptiontable_attr = code.getattr("co_exceptiontable")?;
         let exceptiontable = exceptiontable_attr.extract::<&[u8]>()?;
 
         let mut entries = Vec::new();
@@ -491,31 +518,6 @@ impl ExceptionTableEntry {
         }
 
         Ok(entries)
-    }
-
-    /// Generates an exception table from a list of entries
-    #[staticmethod]
-    fn make_exceptiontable(
-        py: Python,
-        entries: Vec<Py<ExceptionTableEntry>>,
-    ) -> PyResult<Py<PyBytes>> {
-        let mut table = Vec::new();
-
-        for entry_py in entries {
-            let entry = entry_py.borrow(py);
-            table.extend(write_varint_be(
-                offset2branch(entry.start) as u32,
-                Some(0x80),
-            ));
-            table.extend(write_varint_be(
-                offset2branch(entry.end - entry.start) as u32,
-                None,
-            ));
-            table.extend(write_varint_be(offset2branch(entry.target) as u32, None));
-            table.extend(write_varint_be(entry.other, None));
-        }
-
-        Ok(PyBytes::new(py, &table).into())
     }
 }
 
@@ -559,44 +561,6 @@ impl LineEntry {
         if self.end > insert_offset {
             self.end += insert_length;
         }
-    }
-
-    /// Extracts a list of line entries from byte code
-    #[staticmethod]
-    fn from_code(py: Python, code: Py<PyAny>) -> PyResult<Vec<LineEntry>> {
-        let code_bound = code.bind(py);
-        let co_code_attr = code_bound.getattr("co_code")?;
-        let co_code = co_code_attr.extract::<&[u8]>()?;
-        let code_len = co_code.len() as i32;
-
-        let dis = PyModule::import(py, "dis")?;
-        let findlinestarts_fn = dis.getattr("findlinestarts")?;
-        let line_iter = findlinestarts_fn.call1((code,))?;
-
-        let mut lines = Vec::new();
-        let mut last: Option<(i32, i32)> = None;
-
-        for item in line_iter.try_iter()? {
-            let tuple = item?.extract::<(i32, i32)>()?;
-            if let Some((last_off, last_line)) = last {
-                lines.push(LineEntry {
-                    start: last_off,
-                    end: tuple.0,
-                    number: Some(last_line),
-                });
-            }
-            last = Some(tuple);
-        }
-
-        if let Some((last_off, last_line)) = last {
-            lines.push(LineEntry {
-                start: last_off,
-                end: code_len,
-                number: Some(last_line),
-            });
-        }
-
-        Ok(lines)
     }
 
     /// Generates the positions table used by Python 3.11+ to map offsets to line numbers
@@ -644,6 +608,45 @@ impl LineEntry {
         }
 
         Ok(PyBytes::new(py, &linetable).into())
+    }
+}
+
+// Non-Python methods for internal Rust use
+impl LineEntry {
+    /// Extracts a list of line entries from byte code
+    pub fn from_code_impl(py: Python, code: &Bound<PyAny>) -> PyResult<Vec<LineEntry>> {
+        let co_code_attr = code.getattr("co_code")?;
+        let co_code = co_code_attr.extract::<&[u8]>()?;
+        let code_len = co_code.len() as i32;
+
+        let dis = PyModule::import(py, "dis")?;
+        let findlinestarts_fn = dis.getattr("findlinestarts")?;
+        let line_iter = findlinestarts_fn.call1((code,))?;
+
+        let mut lines = Vec::new();
+        let mut last: Option<(i32, i32)> = None;
+
+        for item in line_iter.try_iter()? {
+            let tuple = item?.extract::<(i32, i32)>()?;
+            if let Some((last_off, last_line)) = last {
+                lines.push(LineEntry {
+                    start: last_off,
+                    end: tuple.0,
+                    number: Some(last_line),
+                });
+            }
+            last = Some(tuple);
+        }
+
+        if let Some((last_off, last_line)) = last {
+            lines.push(LineEntry {
+                start: last_off,
+                end: code_len,
+                number: Some(last_line),
+            });
+        }
+
+        Ok(lines)
     }
 }
 
@@ -734,9 +737,10 @@ impl Editor {
         }
 
         if self.branches.is_none() {
-            self.branches = Some(Branch::from_code(py, self.orig_code.clone_ref(py))?);
-            self.ex_table = ExceptionTableEntry::from_code(py, self.orig_code.clone_ref(py))?;
-            self.lines = LineEntry::from_code(py, self.orig_code.clone_ref(py))?;
+            let code_bound = self.orig_code.bind(py);
+            self.branches = Some(Branch::from_code_impl(py, code_bound)?);
+            self.ex_table = ExceptionTableEntry::from_code_impl(py, code_bound)?;
+            self.lines = LineEntry::from_code_impl(py, code_bound)?;
         }
 
         let opcodes = Opcodes::new(py)?;
