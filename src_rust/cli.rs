@@ -496,7 +496,13 @@ fn run_with_coverage(py: Python, cli: &Cli) -> PyResult<i32> {
 
     // Create Covers instance
     let covers_class = py.import("covers")?.getattr("Covers")?;
-    let sci = covers_class.call1((cli.immediate, cli.threshold, cli.branch, cli.dis, source_list))?;
+    let sci = covers_class.call1((
+        cli.immediate,
+        cli.threshold,
+        cli.branch,
+        cli.dis,
+        source_list,
+    ))?;
 
     // Wrap pytest if not disabled
     if !cli.dont_wrap_pytest {

@@ -10,9 +10,9 @@ def ast_parse(s):
 
 
 def get_branches(code):
-    from covers.covers import Covers
+    from covers.covers import branches_from_code
 
-    return sorted(Covers.branches_from_code(code))
+    return sorted(branches_from_code(code))
 
 
 def check_locations(node: ast.AST):
