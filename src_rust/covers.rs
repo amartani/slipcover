@@ -35,7 +35,7 @@ pub struct Covers {
     disassemble: bool,
     source: Option<Vec<String>>,
     instrumented_code_ids: Arc<Mutex<AHashSet<usize>>>,
-    tracker: Py<CoverageTracker>,
+    tracker: Arc<CoverageTracker>,
     modules: Vec<Py<PyAny>>,
 }
 
@@ -51,7 +51,7 @@ impl Covers {
         disassemble: bool,
         source: Option<Vec<String>>,
     ) -> PyResult<Py<Self>> {
-        let tracker = Py::new(py, CoverageTracker::new())?;
+        let tracker = Arc::new(CoverageTracker::new());
         let instrumented_code_ids = Arc::new(Mutex::new(AHashSet::new()));
 
         let slf = Py::new(
@@ -63,7 +63,7 @@ impl Covers {
                 disassemble,
                 source,
                 instrumented_code_ids: instrumented_code_ids.clone(),
-                tracker: tracker.clone_ref(py),
+                tracker: tracker.clone(),
                 modules: Vec::new(),
             },
         )?;
@@ -83,7 +83,7 @@ impl Covers {
         }
 
         // Create the handle_line callback
-        let tracker_ref = tracker.clone_ref(py);
+        let tracker_ref = tracker.clone();
         let ids_ref = instrumented_code_ids.clone();
 
         let handle_line = PyCFunction::new_closure(
@@ -111,9 +111,9 @@ impl Covers {
                         }
                     }
 
-                    // Call tracker.handle_line
+                    // Call tracker.handle_line directly (no Python overhead)
                     let filename: String = code.getattr("co_filename")?.extract()?;
-                    tracker_ref.bind(py).borrow().handle_line(filename, line);
+                    tracker_ref.handle_line(filename, line);
 
                     // Return DISABLE constant
                     let sys_module = PyModule::import(py, "sys")?;
@@ -190,10 +190,9 @@ impl Covers {
             let lines = lines_from_code(py, code_bound)?;
             let branches = branches_from_code(py, code_bound)?;
 
-            let tracker = self.tracker.bind(py).borrow();
-            tracker.add_code_lines(filename.clone(), lines);
+            self.tracker.add_code_lines(filename.clone(), lines);
             if !branches.is_empty() {
-                tracker.add_code_branches(filename, branches);
+                self.tracker.add_code_branches(filename, branches);
             }
         }
 
@@ -202,8 +201,7 @@ impl Covers {
 
     fn get_coverage(&mut self, py: Python) -> PyResult<Py<PyDict>> {
         // Merge newly seen into all_seen
-        let tracker = self.tracker.bind(py).borrow();
-        tracker.merge_newly_seen();
+        self.tracker.merge_newly_seen();
 
         // Add unseen source files if source is specified
         if let Some(ref source_paths) = self.source {
@@ -214,7 +212,7 @@ impl Covers {
         let simp = PathSimplifier::new()?;
 
         // Get coverage data from tracker using native structures
-        let files_data = tracker.get_coverage_data_native(self.branch);
+        let files_data = self.tracker.get_coverage_data_native(self.branch);
 
         // Simplify file paths
         let mut simplified_files_data: AHashMap<String, FileCoverageData> = AHashMap::new();
@@ -309,9 +307,8 @@ impl Covers {
 
     fn signal_child_process(&mut self, py: Python) -> PyResult<()> {
         self.source = None;
-        let tracker = self.tracker.bind(py).borrow();
-        tracker.get_newly_seen(py)?;
-        tracker.clear_all_seen();
+        self.tracker.get_newly_seen(py)?;
+        self.tracker.clear_all_seen();
         Ok(())
     }
 
@@ -371,12 +368,11 @@ impl Covers {
     /// Add code branches for a file (for pytest integration)
     fn add_code_branches(
         &self,
-        py: Python,
+        _py: Python,
         filename: String,
         branches: Vec<(i32, i32)>,
     ) -> PyResult<()> {
-        let tracker = self.tracker.bind(py).borrow();
-        tracker.add_code_branches(filename, branches);
+        self.tracker.add_code_branches(filename, branches);
         Ok(())
     }
 
@@ -455,8 +451,6 @@ impl Covers {
             }
         }
 
-        let tracker = self.tracker.bind(py).borrow();
-
         while let Some(p) = dirs.pop() {
             let entries = match std::fs::read_dir(&p) {
                 Ok(entries) => entries,
@@ -485,9 +479,9 @@ impl Covers {
                     let filename = path.to_string_lossy().to_string();
 
                     // Check if file has been instrumented
-                    if !tracker.has_file(filename.clone()) {
+                    if !self.tracker.has_file(filename.clone()) {
                         // Try to parse and compile
-                        match self._try_add_file_from_path(py, &path, &filename, &tracker) {
+                        match self._try_add_file_from_path(py, &path, &filename) {
                             Ok(_) => {}
                             Err(e) => {
                                 println!("Warning: unable to include {}: {}", filename, e);
@@ -501,13 +495,7 @@ impl Covers {
         Ok(())
     }
 
-    fn _try_add_file_from_path(
-        &self,
-        py: Python,
-        path: &Path,
-        filename: &str,
-        tracker: &CoverageTracker,
-    ) -> PyResult<()> {
+    fn _try_add_file_from_path(&self, py: Python, path: &Path, filename: &str) -> PyResult<()> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| PyIOError::new_err(format!("Failed to read file {}: {}", filename, e)))?;
 
@@ -522,38 +510,32 @@ impl Covers {
         // Extract lines using lines_from_code
         let lines = lines_from_code(py, &code)?;
         if !lines.is_empty() {
-            tracker.add_code_lines(filename.to_string(), lines);
+            self.tracker.add_code_lines(filename.to_string(), lines);
         }
 
         // For branches, use tree-sitter analysis directly instead of bytecode analysis
         if self.branch {
-            use crate::branch::analyze_branches_ts;
+            use crate::branch::analyze_branches_ts_impl;
 
-            // Use tree-sitter to analyze branches
-            let branch_data = analyze_branches_ts(py, content)?;
-            let branch_dict = branch_data.bind(py).cast::<PyDict>()?;
+            // Use tree-sitter to analyze branches (using native Rust types)
+            let branch_data = analyze_branches_ts_impl(&content)
+                .map_err(|e| PyIOError::new_err(format!("Failed to analyze branches: {}", e)))?;
 
             // Extract branches from the tree-sitter analysis result
             let mut branches = Vec::new();
-            for (branch_line_obj, markers_obj) in branch_dict.iter() {
-                let branch_line: i32 = branch_line_obj.extract()?;
-                let markers_list = markers_obj.cast::<PyList>()?;
-
-                for marker_obj in markers_list.iter() {
-                    let marker_tuple = marker_obj.cast::<PyTuple>()?;
-                    let _insert_line: i32 = marker_tuple.get_item(0)?.extract()?;
-                    let to_line: i32 = marker_tuple.get_item(1)?.extract()?;
-
+            for (branch_line, markers) in branch_data {
+                for (_insert_line, to_line) in markers {
                     // Add the branch (from branch_line to to_line)
                     // Skip branches where to_line is 0 (these are inserted into orelse and handled separately)
                     if to_line != 0 {
-                        branches.push((branch_line, to_line));
+                        branches.push((branch_line as i32, to_line as i32));
                     }
                 }
             }
 
             if !branches.is_empty() {
-                tracker.add_code_branches(filename.to_string(), branches);
+                self.tracker
+                    .add_code_branches(filename.to_string(), branches);
             }
         }
 
