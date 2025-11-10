@@ -83,6 +83,10 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: auto
+        env:
+          # Define _GNU_SOURCE to expose le16toh/be16toh macros from endian.h
+          # This is required for tree-sitter C code compilation
+          CFLAGS: "-D_GNU_SOURCE"
 
       - name: Build source dist
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64'
