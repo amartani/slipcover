@@ -45,20 +45,30 @@ pub fn decode_branch(line: i32) -> (i32, i32) {
     ((line >> 15) & LINE_MASK, line & LINE_MASK)
 }
 
-/// Analyze Python source code to find branch points using tree-sitter
-#[pyfunction]
-pub fn analyze_branches_ts(py: Python, source: String) -> PyResult<Py<PyDict>> {
-    let branch_info_list =
-        analyze_branches(&source).map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
+/// Analyze Python source code to find branch points using tree-sitter (internal implementation)
+pub fn analyze_branches_ts_impl(
+    source: &str,
+) -> Result<AHashMap<usize, Vec<(usize, usize)>>, String> {
+    let branch_info_list = analyze_branches(source)?;
 
-    // Build a native Rust structure first
+    // Build a native Rust structure
     let mut branches_map: AHashMap<usize, Vec<(usize, usize)>> = AHashMap::new();
 
     for info in branch_info_list {
         branches_map.insert(info.branch_line, info.markers);
     }
 
-    // Now convert to Python structures in one pass
+    Ok(branches_map)
+}
+
+/// Analyze Python source code to find branch points using tree-sitter (Python API)
+#[pyfunction]
+pub fn analyze_branches_ts(py: Python, source: String) -> PyResult<Py<PyDict>> {
+    // Call the internal implementation
+    let branches_map = analyze_branches_ts_impl(&source)
+        .map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)?;
+
+    // Convert to Python structures
     let result = PyDict::new(py);
 
     for (branch_line, markers) in branches_map {
