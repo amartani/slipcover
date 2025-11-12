@@ -24,8 +24,11 @@ covers = "covers.__main__:main"
 
 [dependency-groups]
 benchmark = [
+  "coverage>=7.0.0",
   "py-cpuinfo>=9.0.0",
+  "pyperf",
   "scikit-learn>=1.7.2",
+  "slipcover>=1.0.0",
   "tabulate",
   { include-group = "test" },
 ]

@@ -41,6 +41,12 @@ def load_cases():
                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
                  color='tab:orange', get_version=lambda: version('coverage'),
                  env={'COVERAGE_CORE':'sysmon'}),
+            Case('covers', "Covers line",
+                 sys.executable + " -m covers {covers_opts} {bench_command}",
+                 color='green', get_version=lambda: version('covers')),
+            Case('covers-branch', "Covers line+branch",
+                 sys.executable + " -m covers --branch {covers_opts} {bench_command}",
+                 color='darkgreen', get_version=lambda: version('covers')),
             Case('nulltracer', "null C tracer",
                  sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}",
                  color='tab:red', get_version=lambda: version('nulltracer')),
@@ -86,9 +92,9 @@ def load_benchmarks():
         def __init__(self, name, command, opts=None, cwd=None, tries=None):
             self.name = name
             self.format = {'bench_command': command}
-            for k in ['slipcover_opts', 'coveragepy_opts', 'nulltracer_opts']:
+            for k in ['slipcover_opts', 'coveragepy_opts', 'nulltracer_opts', 'covers_opts']:
                 self.format[k] = opts[k] if opts and k in opts else ''
-            self.cwd = cwd 
+            self.cwd = cwd
             self.tries = TRIES if tries is None else tries
 
 
@@ -190,9 +196,9 @@ def parse_args():
 
     if not args.case:
         if args.cmd == 'run':
-            args.case = ['slipcover', 'slipcover-branch']
+            args.case = ['covers', 'covers-branch', 'slipcover', 'slipcover-branch', 'coveragepy', 'coveragepy-branch-sysmon']
         else:
-            args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
+            args.case = ['covers', 'covers-branch', 'coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
 
     if 'all' in args.case:
         tmp = set(args.case)
