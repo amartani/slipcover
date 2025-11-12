@@ -4,40 +4,6 @@ use pyo3::prelude::*;
 use std::io::Write;
 use std::path::Path;
 
-/// File data structure for LCOV
-#[derive(Debug, Clone)]
-struct FileInfo {
-    file_path: String,
-    executed_lines: Vec<i32>,
-    missing_lines: Vec<i32>,
-    executed_branches: Vec<(i32, i32)>,
-    missing_branches: Vec<(i32, i32)>,
-}
-
-/// Sort strings the way humans expect (natural sorting)
-fn human_sorted(mut strings: Vec<String>) -> Vec<String> {
-    strings.sort_by(|a, b| {
-        let a_parts: Vec<_> = a
-            .split(|c: char| !c.is_alphanumeric())
-            .map(|s| {
-                s.parse::<i64>()
-                    .map(|n| (false, n, String::new()))
-                    .unwrap_or((true, 0, s.to_string()))
-            })
-            .collect();
-        let b_parts: Vec<_> = b
-            .split(|c: char| !c.is_alphanumeric())
-            .map(|s| {
-                s.parse::<i64>()
-                    .map(|n| (false, n, String::new()))
-                    .unwrap_or((true, 0, s.to_string()))
-            })
-            .collect();
-        a_parts.cmp(&b_parts)
-    });
-    strings
-}
-
 /// Calculate relative path from source_path to file_path
 fn get_relative_path(file_path: &str, source_paths: &[String]) -> String {
     let file_path = Path::new(file_path);
@@ -111,47 +77,13 @@ pub fn print_lcov(
     with_branches: bool,
     outfile: Option<Py<PyAny>>,
 ) -> PyResult<()> {
-    // Parse coverage data from CoverageData struct
-    let mut file_infos: Vec<FileInfo> = Vec::new();
-
-    for (file_path, file_data) in &coverage.files {
-        let (executed_branches, missing_branches) = if with_branches {
-            (
-                file_data.coverage.executed_branches.clone(),
-                file_data.coverage.missing_branches.clone(),
-            )
-        } else {
-            (Vec::new(), Vec::new())
-        };
-
-        file_infos.push(FileInfo {
-            file_path: file_path.clone(),
-            executed_lines: file_data.coverage.executed_lines.clone(),
-            missing_lines: file_data.coverage.missing_lines.clone(),
-            executed_branches,
-            missing_branches,
-        });
-    }
-
-    // Sort files naturally
-    let file_paths: Vec<String> = file_infos.iter().map(|f| f.file_path.clone()).collect();
-    let sorted_paths = human_sorted(file_paths);
-
-    // Create a map for quick lookup
-    let mut file_map: AHashMap<String, FileInfo> = AHashMap::new();
-    for file_info in file_infos {
-        file_map.insert(file_info.file_path.clone(), file_info);
-    }
-
     // Prepare output writer
     let mut output: Vec<u8> = Vec::new();
 
     // Write LCOV data for each file
-    for file_path in sorted_paths {
-        let file_info = file_map.get(&file_path).unwrap();
-
+    for (file_path, file_data) in &coverage.files {
         // Get relative path
-        let relative_path = get_relative_path(&file_info.file_path, &source_paths);
+        let relative_path = get_relative_path(file_path, &source_paths);
 
         // TN: Test name (optional, we'll use a generic name)
         writeln!(output, "TN:").unwrap();
@@ -163,12 +95,12 @@ pub fn print_lcov(
         let mut line_data: AHashMap<i32, i32> = AHashMap::new();
 
         // Executed lines have count > 0 (we'll use 1 since we don't track actual execution count)
-        for &line in &file_info.executed_lines {
+        for &line in &file_data.coverage.executed_lines {
             line_data.insert(line, 1);
         }
 
         // Missing lines have count 0
-        for &line in &file_info.missing_lines {
+        for &line in &file_data.coverage.missing_lines {
             line_data.insert(line, 0);
         }
 
@@ -184,14 +116,16 @@ pub fn print_lcov(
 
         // LF: Lines found, LH: Lines hit
         let lines_found = line_numbers.len();
-        let lines_hit = file_info.executed_lines.len();
+        let lines_hit = file_data.coverage.executed_lines.len();
         writeln!(output, "LF:{}", lines_found).unwrap();
         writeln!(output, "LH:{}", lines_hit).unwrap();
 
         // Branch coverage (if enabled)
         if with_branches {
-            let branch_map =
-                get_branch_data_by_line(&file_info.executed_branches, &file_info.missing_branches);
+            let branch_map = get_branch_data_by_line(
+                &file_data.coverage.executed_branches,
+                &file_data.coverage.missing_branches,
+            );
 
             // Get sorted line numbers that have branches
             let mut branch_lines: Vec<i32> = branch_map.keys().copied().collect();
