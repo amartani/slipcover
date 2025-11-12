@@ -355,11 +355,14 @@ fn merge_coverage_files(py: Python, cli: &Cli) -> PyResult<i32> {
         Some(&[("encoding", "utf-8")].into_py_dict(py)?),
     )?;
 
+    // Convert merged_dict to CoverageData for output functions
+    let coverage_data = crate::schemas::CoverageData::from_dict(py, merged_dict.bind(py))?;
+
     if cli.xml {
         // XML output using Rust print_xml function
         print_xml(
             py,
-            merged_dict.bind(py),
+            &coverage_data,
             vec![base_path.clone()],
             branch,
             xml_package_depth,
@@ -369,7 +372,7 @@ fn merge_coverage_files(py: Python, cli: &Cli) -> PyResult<i32> {
         // LCOV output using Rust print_lcov function
         print_lcov(
             py,
-            merged_dict.bind(py),
+            &coverage_data,
             vec![base_path.clone()],
             branch,
             Some(out_handle.clone().into()),
@@ -413,10 +416,13 @@ fn merge_coverage_files(py: Python, cli: &Cli) -> PyResult<i32> {
         let sys_module = PyModule::import(py, "sys")?;
         let stdout = sys_module.getattr("stdout")?;
 
+        // Convert merged_dict to CoverageData
+        let coverage_data = crate::schemas::CoverageData::from_dict(py, merged_dict.bind(py))?;
+
         // Use Rust print_coverage function
         print_coverage(
             py,
-            merged_dict.bind(py),
+            &coverage_data,
             Some(stdout.into()),
             Some(missing_width as usize),
             skip_covered,
@@ -591,10 +597,23 @@ from covers.runner import get_coverage
 
 def sci_atexit():
     def printit(coverage, outfile):
+        # Convert CoverageResults to dict for JSON serialization
+        if hasattr(coverage, 'to_dict'):
+            coverage_dict = coverage.to_dict()
+        elif hasattr(coverage, '__class__') and coverage.__class__.__name__ == 'CoverageResults':
+            # Fallback for older implementations
+            coverage_dict = {
+                'meta': coverage['meta'],
+                'files': coverage['files'],
+                'summary': coverage['summary']
+            }
+        else:
+            coverage_dict = coverage
+
         if _args.get("json"):
             print(
                 json.dumps(
-                    coverage, indent=(4 if _args.get("pretty_print") else None)
+                    coverage_dict, indent=(4 if _args.get("pretty_print") else None)
                 ),
                 file=outfile,
             )

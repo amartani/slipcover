@@ -2,6 +2,8 @@
 // Based on the original Python schemas.py module (TypedDict definitions)
 
 use ahash::AHashMap;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList, PyTuple};
 
 /// LineOrBranch represents either a line number or a branch tuple
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -29,7 +31,6 @@ pub struct FileSummary {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct FileData {
     pub coverage: FileCoverageData,
     pub summary: FileSummary,
@@ -44,10 +45,261 @@ pub struct MetaData {
     pub show_contexts: bool,
 }
 
+/// Native Rust structure for coverage results
+/// This struct uses only Rust-native fields internally and exposes Python-friendly getters
+#[pyclass(name = "CoverageResults")]
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct CoverageData {
     pub meta: MetaData,
     pub files: AHashMap<String, FileData>,
     pub summary: FileSummary,
+}
+
+#[pymethods]
+impl CoverageData {
+    /// Create CoverageData from a Python dictionary
+    #[staticmethod]
+    pub fn from_dict(_py: Python, dict: &Bound<PyDict>) -> PyResult<Self> {
+
+        // Extract meta
+        let meta_dict = dict.get_item("meta")?
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'meta' key"))?;
+        let meta_dict: &Bound<PyDict> = meta_dict.cast()?;
+
+        let meta = MetaData {
+            software: meta_dict.get_item("software")?.unwrap().extract()?,
+            version: meta_dict.get_item("version")?.unwrap().extract()?,
+            timestamp: meta_dict.get_item("timestamp")?.unwrap().extract()?,
+            branch_coverage: meta_dict.get_item("branch_coverage")?.unwrap().extract()?,
+            show_contexts: meta_dict.get_item("show_contexts")?.unwrap().extract()?,
+        };
+
+        // Extract files
+        let files_dict = dict.get_item("files")?
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'files' key"))?;
+        let files_dict: &Bound<PyDict> = files_dict.cast()?;
+
+        let mut files_map: AHashMap<String, FileData> = AHashMap::new();
+        for (filename_obj, file_data_obj) in files_dict.iter() {
+            let filename: String = filename_obj.extract()?;
+            let file_dict: &Bound<PyDict> = file_data_obj.cast()?;
+
+            let executed_lines: Vec<i32> = file_dict.get_item("executed_lines")?.unwrap().extract()?;
+            let missing_lines: Vec<i32> = file_dict.get_item("missing_lines")?.unwrap().extract()?;
+
+            let (executed_branches, missing_branches) = if meta.branch_coverage {
+                let exec_br: Vec<(i32, i32)> = file_dict.get_item("executed_branches")?.unwrap().extract()?;
+                let miss_br: Vec<(i32, i32)> = file_dict.get_item("missing_branches")?.unwrap().extract()?;
+                (exec_br, miss_br)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
+            let summary_dict = file_dict.get_item("summary")?.unwrap();
+            let summary_dict: &Bound<PyDict> = summary_dict.cast()?;
+
+            let summary = FileSummary {
+                covered_lines: summary_dict.get_item("covered_lines")?.unwrap().extract()?,
+                missing_lines: summary_dict.get_item("missing_lines")?.unwrap().extract()?,
+                covered_branches: summary_dict.get_item("covered_branches")?.map(|v| v.extract()).transpose()?,
+                missing_branches: summary_dict.get_item("missing_branches")?.map(|v| v.extract()).transpose()?,
+                percent_covered: summary_dict.get_item("percent_covered")?.unwrap().extract()?,
+            };
+
+            files_map.insert(filename, FileData {
+                coverage: FileCoverageData {
+                    executed_lines,
+                    missing_lines,
+                    executed_branches,
+                    missing_branches,
+                },
+                summary,
+            });
+        }
+
+        // Extract summary
+        let summary_dict = dict.get_item("summary")?
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'summary' key"))?;
+        let summary_dict: &Bound<PyDict> = summary_dict.cast()?;
+
+        let summary = FileSummary {
+            covered_lines: summary_dict.get_item("covered_lines")?.unwrap().extract()?,
+            missing_lines: summary_dict.get_item("missing_lines")?.unwrap().extract()?,
+            covered_branches: summary_dict.get_item("covered_branches")?.map(|v| v.extract()).transpose()?,
+            missing_branches: summary_dict.get_item("missing_branches")?.map(|v| v.extract()).transpose()?,
+            percent_covered: summary_dict.get_item("percent_covered")?.unwrap().extract()?,
+        };
+
+        Ok(CoverageData {
+            meta,
+            files: files_map,
+            summary,
+        })
+    }
+
+    /// Convert CoverageData to a Python dictionary
+    fn to_dict(&self, py: Python) -> PyResult<Py<PyDict>> {
+        let cov = PyDict::new(py);
+
+        // Add meta
+        let meta_dict = PyDict::new(py);
+        meta_dict.set_item("software", &self.meta.software)?;
+        meta_dict.set_item("version", &self.meta.version)?;
+        meta_dict.set_item("timestamp", &self.meta.timestamp)?;
+        meta_dict.set_item("branch_coverage", self.meta.branch_coverage)?;
+        meta_dict.set_item("show_contexts", self.meta.show_contexts)?;
+        cov.set_item("meta", meta_dict)?;
+
+        // Add files
+        let files_dict = PyDict::new(py);
+        for (filename, file_data) in &self.files {
+            let file_dict = PyDict::new(py);
+
+            file_dict.set_item(
+                "executed_lines",
+                PyList::new(py, &file_data.coverage.executed_lines)?,
+            )?;
+            file_dict.set_item(
+                "missing_lines",
+                PyList::new(py, &file_data.coverage.missing_lines)?,
+            )?;
+
+            if self.meta.branch_coverage {
+                let exec_br_list = PyList::empty(py);
+                for (from_line, to_line) in &file_data.coverage.executed_branches {
+                    exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                let miss_br_list = PyList::empty(py);
+                for (from_line, to_line) in &file_data.coverage.missing_branches {
+                    miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                }
+
+                file_dict.set_item("executed_branches", exec_br_list)?;
+                file_dict.set_item("missing_branches", miss_br_list)?;
+            }
+
+            // Add file summary
+            let summary_dict = PyDict::new(py);
+            summary_dict.set_item("covered_lines", file_data.summary.covered_lines)?;
+            summary_dict.set_item("missing_lines", file_data.summary.missing_lines)?;
+            if let Some(cb) = file_data.summary.covered_branches {
+                summary_dict.set_item("covered_branches", cb)?;
+            }
+            if let Some(mb) = file_data.summary.missing_branches {
+                summary_dict.set_item("missing_branches", mb)?;
+            }
+            summary_dict.set_item("percent_covered", file_data.summary.percent_covered)?;
+            file_dict.set_item("summary", summary_dict)?;
+
+            files_dict.set_item(filename, file_dict)?;
+        }
+        cov.set_item("files", files_dict)?;
+
+        // Add global summary
+        let summary_dict = PyDict::new(py);
+        summary_dict.set_item("covered_lines", self.summary.covered_lines)?;
+        summary_dict.set_item("missing_lines", self.summary.missing_lines)?;
+        if let Some(cb) = self.summary.covered_branches {
+            summary_dict.set_item("covered_branches", cb)?;
+        }
+        if let Some(mb) = self.summary.missing_branches {
+            summary_dict.set_item("missing_branches", mb)?;
+        }
+        summary_dict.set_item("percent_covered", self.summary.percent_covered)?;
+        summary_dict.set_item(
+            "percent_covered_display",
+            format!("{}", self.summary.percent_covered.round() as i32),
+        )?;
+        cov.set_item("summary", summary_dict)?;
+
+        Ok(cov.into())
+    }
+
+    /// Check if a key exists in the coverage data
+    fn __contains__(&self, key: &str) -> bool {
+        matches!(key, "meta" | "files" | "summary")
+    }
+
+    /// Get the metadata as a Python dictionary
+    fn __getitem__(&self, py: Python, key: &str) -> PyResult<Py<PyAny>> {
+        match key {
+            "meta" => {
+                let meta_dict = PyDict::new(py);
+                meta_dict.set_item("software", &self.meta.software)?;
+                meta_dict.set_item("version", &self.meta.version)?;
+                meta_dict.set_item("timestamp", &self.meta.timestamp)?;
+                meta_dict.set_item("branch_coverage", self.meta.branch_coverage)?;
+                meta_dict.set_item("show_contexts", self.meta.show_contexts)?;
+                Ok(meta_dict.into())
+            }
+            "files" => {
+                let files_dict = PyDict::new(py);
+                for (filename, file_data) in &self.files {
+                    let file_dict = PyDict::new(py);
+
+                    file_dict.set_item(
+                        "executed_lines",
+                        PyList::new(py, &file_data.coverage.executed_lines)?,
+                    )?;
+                    file_dict.set_item(
+                        "missing_lines",
+                        PyList::new(py, &file_data.coverage.missing_lines)?,
+                    )?;
+
+                    if self.meta.branch_coverage {
+                        let exec_br_list = PyList::empty(py);
+                        for (from_line, to_line) in &file_data.coverage.executed_branches {
+                            exec_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                        }
+
+                        let miss_br_list = PyList::empty(py);
+                        for (from_line, to_line) in &file_data.coverage.missing_branches {
+                            miss_br_list.append(PyTuple::new(py, [from_line, to_line])?)?;
+                        }
+
+                        file_dict.set_item("executed_branches", exec_br_list)?;
+                        file_dict.set_item("missing_branches", miss_br_list)?;
+                    }
+
+                    // Add file summary
+                    let summary_dict = PyDict::new(py);
+                    summary_dict.set_item("covered_lines", file_data.summary.covered_lines)?;
+                    summary_dict.set_item("missing_lines", file_data.summary.missing_lines)?;
+                    if let Some(cb) = file_data.summary.covered_branches {
+                        summary_dict.set_item("covered_branches", cb)?;
+                    }
+                    if let Some(mb) = file_data.summary.missing_branches {
+                        summary_dict.set_item("missing_branches", mb)?;
+                    }
+                    summary_dict.set_item("percent_covered", file_data.summary.percent_covered)?;
+                    file_dict.set_item("summary", summary_dict)?;
+
+                    files_dict.set_item(filename, file_dict)?;
+                }
+                Ok(files_dict.into())
+            }
+            "summary" => {
+                let summary_dict = PyDict::new(py);
+                summary_dict.set_item("covered_lines", self.summary.covered_lines)?;
+                summary_dict.set_item("missing_lines", self.summary.missing_lines)?;
+                if let Some(cb) = self.summary.covered_branches {
+                    summary_dict.set_item("covered_branches", cb)?;
+                }
+                if let Some(mb) = self.summary.missing_branches {
+                    summary_dict.set_item("missing_branches", mb)?;
+                }
+                summary_dict.set_item("percent_covered", self.summary.percent_covered)?;
+                summary_dict.set_item(
+                    "percent_covered_display",
+                    format!("{}", self.summary.percent_covered.round() as i32),
+                )?;
+                Ok(summary_dict.into())
+            }
+            _ => Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!(
+                "Key '{}' not found",
+                key
+            ))),
+        }
+    }
 }
