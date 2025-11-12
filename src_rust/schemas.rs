@@ -47,7 +47,7 @@ pub struct MetaData {
 
 /// Native Rust structure for coverage results
 /// This struct uses only Rust-native fields internally and exposes Python-friendly getters
-#[pyclass(name = "CoverageResults")]
+#[pyclass(name = "CoverageData")]
 #[derive(Clone, Debug)]
 pub struct CoverageData {
     pub meta: MetaData,
@@ -59,8 +59,7 @@ pub struct CoverageData {
 impl CoverageData {
     /// Create CoverageData from a Python dictionary
     #[staticmethod]
-    pub fn from_dict(_py: Python, dict: &Bound<PyDict>) -> PyResult<Self> {
-
+    pub fn from_dict(py: Python, dict: &Bound<PyDict>) -> PyResult<Self> {
         // Extract meta
         let meta_dict = dict.get_item("meta")?
             .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'meta' key"))?;
@@ -81,15 +80,50 @@ impl CoverageData {
 
         let mut files_map: AHashMap<String, FileData> = AHashMap::new();
         for (filename_obj, file_data_obj) in files_dict.iter() {
-            let filename: String = filename_obj.extract()?;
-            let file_dict: &Bound<PyDict> = file_data_obj.cast()?;
+            let filename: String = filename_obj.extract().map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract filename: {}", e))
+            })?;
+            let file_dict: &Bound<PyDict> = file_data_obj.cast().map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to cast file_data for {}: {}", filename, e))
+            })?;
 
-            let executed_lines: Vec<i32> = file_dict.get_item("executed_lines")?.unwrap().extract()?;
-            let missing_lines: Vec<i32> = file_dict.get_item("missing_lines")?.unwrap().extract()?;
+            let executed_lines: Vec<i32> = file_dict.get_item("executed_lines")?.unwrap().extract().map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract executed_lines for {}: {}", filename, e))
+            })?;
+            let missing_lines: Vec<i32> = file_dict.get_item("missing_lines")?.unwrap().extract().map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract missing_lines for {}: {}", filename, e))
+            })?;
 
-            let (executed_branches, missing_branches) = if meta.branch_coverage {
-                let exec_br: Vec<(i32, i32)> = file_dict.get_item("executed_branches")?.unwrap().extract()?;
-                let miss_br: Vec<(i32, i32)> = file_dict.get_item("missing_branches")?.unwrap().extract()?;
+            let (executed_branches, missing_branches) = if meta.branch_coverage
+                && file_dict.contains("executed_branches")?
+                && file_dict.contains("missing_branches")?
+            {
+                // JSON deserializes arrays as lists, not tuples
+                // Extract as Vec<Vec<i32>> and convert to Vec<(i32, i32)>
+                let exec_br_lists: Vec<Vec<i32>> = file_dict
+                    .get_item("executed_branches")?
+                    .unwrap()
+                    .extract()
+                    .map_err(|e| {
+                        PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract executed_branches for {}: {}", filename, e))
+                    })?;
+                let exec_br: Vec<(i32, i32)> = exec_br_lists
+                    .into_iter()
+                    .map(|v| (v[0], v[1]))
+                    .collect();
+
+                let miss_br_lists: Vec<Vec<i32>> = file_dict
+                    .get_item("missing_branches")?
+                    .unwrap()
+                    .extract()
+                    .map_err(|e| {
+                        PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract missing_branches for {}: {}", filename, e))
+                    })?;
+                let miss_br: Vec<(i32, i32)> = miss_br_lists
+                    .into_iter()
+                    .map(|v| (v[0], v[1]))
+                    .collect();
+
                 (exec_br, miss_br)
             } else {
                 (Vec::new(), Vec::new())

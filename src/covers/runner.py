@@ -59,7 +59,7 @@ def get_coverage(sci):
     cov = sci.get_coverage()
 
     if input_tmpfiles:
-        # Convert CoverageResults to dict for merging
+        # Convert CoverageData to dict for merging
         if hasattr(cov, 'to_dict'):
             cov_dict = cov.to_dict()
         else:
@@ -83,8 +83,8 @@ def get_coverage(sci):
                 except (FileNotFoundError, OSError):
                     pass
 
-        # Convert back to CoverageResults if we had input files
-        cov = sc.CoverageResults.from_dict(cov_dict)
+        # Convert back to CoverageData if we had input files
+        cov = sc.CoverageData.from_dict(cov_dict)
 
     return cov
 

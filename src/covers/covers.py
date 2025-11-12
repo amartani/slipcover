@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 # Import from Rust
 from .covers_core import (  # noqa: F401
     Covers,
-    CoverageResults,
+    CoverageData,
     CoverageTracker,
     PathSimplifier,
     add_summaries,

@@ -597,10 +597,10 @@ from covers.runner import get_coverage
 
 def sci_atexit():
     def printit(coverage, outfile):
-        # Convert CoverageResults to dict for JSON serialization
+        # Convert CoverageData to dict for JSON serialization
         if hasattr(coverage, 'to_dict'):
             coverage_dict = coverage.to_dict()
-        elif hasattr(coverage, '__class__') and coverage.__class__.__name__ == 'CoverageResults':
+        elif hasattr(coverage, '__class__') and coverage.__class__.__name__ == 'CoverageData':
             # Fallback for older implementations
             coverage_dict = {
                 'meta': coverage['meta'],
