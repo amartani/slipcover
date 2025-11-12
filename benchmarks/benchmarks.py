@@ -191,6 +191,9 @@ def parse_args():
     plot_summary = sp.add_parser('plot-summary', help='plot summary graph')
     latex = sp.add_parser('latex', help='write out LaTeX table')
 
+    run.add_argument('--lcov', action='store_true', default=False,
+                     help='generate LCOV output (only for coveragepy and covers)')
+
     for p in [run, show, plot, plot_summary, latex]:
         p.add_argument('--case', choices=[c.name for c in cases] + ['all'],
                        action='extend', nargs='+', help='select case(s) to run/plot')
@@ -267,7 +270,11 @@ def run_command(command: str, cwd=None, env=None):
     print(command)
 
     begin = time.perf_counter_ns()
-    subprocess.run(shlex.split(command), cwd=cwd, check=True, env=env) # capture_output=True)
+    # Use shell=True if command contains shell operators like &&
+    if '&&' in command or '||' in command or '|' in command:
+        subprocess.run(command, shell=True, cwd=cwd, check=True, env=env)
+    else:
+        subprocess.run(shlex.split(command), cwd=cwd, check=True, env=env) # capture_output=True)
     end = time.perf_counter_ns()
 
     elapsed = (end - begin)/1000000000
@@ -700,10 +707,26 @@ if __name__ == "__main__":
                     if isinstance(results[case.name][bench.name], list):
                         results[case.name][bench.name] = {'times': results[case.name][bench.name]}
 
+                # Prepare command with optional lcov flags
+                command_format = bench.format.copy()
+                command = case.command.format(**command_format)
+
+                # Add lcov flags if requested and supported by the case
+                if args.lcov:
+                    if 'coveragepy' in case.name:
+                        # For coverage.py, append lcov generation command after the main command
+                        lcov_file = f"{case.name}_{bench.name}.lcov"
+                        command += f' && {sys.executable} -m coverage lcov -o {lcov_file}'
+                    elif 'covers' in case.name:
+                        # For covers, add lcov flags directly to the command opts
+                        lcov_file = f"{case.name}_{bench.name}.lcov"
+                        command_format['covers_opts'] = bench.format.get('covers_opts', '') + f' --lcov --out {lcov_file}'
+                        command = case.command.format(**command_format)
+
                 times = []
                 for t in range(bench.tries):
                     print(f"--- {case.name} {bench.name} #{t+1}/{bench.tries} ---")
-                    times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd, env=case.env))
+                    times.append(run_command(command, cwd=bench.cwd, env=case.env))
 
                 results[case.name][bench.name] = {
                     'datetime': datetime.now().isoformat(),
