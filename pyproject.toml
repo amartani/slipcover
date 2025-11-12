@@ -27,9 +27,11 @@ benchmark = [
   "coverage>=7.0.0",
   "py-cpuinfo>=9.0.0",
   "pyperf",
-  "scikit-learn>=1.7.2",
+  "setuptools",
+  "six",
   "slipcover>=1.0.0",
   "tabulate",
+  "uv",
   { include-group = "test" },
 ]
 test = [
