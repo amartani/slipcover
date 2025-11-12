@@ -81,12 +81,46 @@ def load_cases():
 
 cases = load_cases()
 
+def ensure_repo_cloned(repo_path: Path, repo_url: str, branch: str = None, build_command: list = None):
+    """Clone a git repository if it doesn't already exist, and optionally build it."""
+
+    if not repo_path.exists():
+        print(f"Cloning {repo_url} to {repo_path}...")
+        repo_path.parent.mkdir(parents=True, exist_ok=True)
+
+        clone_cmd = ["git", "clone", "--depth", "1"]
+        if branch:
+            clone_cmd.extend(["--branch", branch])
+        clone_cmd.extend([repo_url, str(repo_path)])
+
+        subprocess.run(clone_cmd, check=True)
+        print(f"Successfully cloned {repo_url}")
+
+        if build_command:
+            print(f"Building {repo_path.name}...")
+            subprocess.run(build_command, cwd=str(repo_path), check=True)
+            print(f"Successfully built {repo_path.name}")
+
 def load_benchmarks():
     TRIES = 5
     # someplace with scikit-learn 1.1.1 sources, built and ready to test
     SCIKIT_LEARN = Path.home() / "tmp" / ("scikit-learn" + ("-pypy" if platform.python_implementation() == "PyPy" else ""))
     FLASK = Path.home() / "tmp" / "flask"
     MATPLOTLIB = Path.home() / "tmp" / "matplotlib"
+
+    # Ensure required repositories are cloned and built
+    ensure_repo_cloned(
+        SCIKIT_LEARN,
+        "https://github.com/scikit-learn/scikit-learn.git",
+        "1.1.1",
+        ["uv", "pip", "install", "-e", ".", "--no-build-isolation"]
+    )
+    ensure_repo_cloned(
+        FLASK,
+        "https://github.com/pallets/flask.git",
+        build_command=["uv", "pip", "install", "-e", "."]
+    )
+    # MATPLOTLIB is currently disabled in benchmarks below
 
     class Benchmark:
         def __init__(self, name, command, opts=None, cwd=None, tries=None):
@@ -196,7 +230,7 @@ def parse_args():
 
     if not args.case:
         if args.cmd == 'run':
-            args.case = ['covers', 'covers-branch', 'slipcover', 'slipcover-branch', 'coveragepy', 'coveragepy-branch-sysmon']
+            args.case = ['base', 'covers', 'covers-branch', 'slipcover', 'slipcover-branch', 'coveragepy-sysmon', 'coveragepy-branch-sysmon']
         else:
             args.case = ['covers', 'covers-branch', 'coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
 
@@ -682,8 +716,11 @@ if __name__ == "__main__":
                     results[case.name][bench.name]['coveragepy_version'] = coverage.__version__
 
                 m = median(times)
-                b_m = median(results['base'][bench.name]['times'])
-                print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
+                if case.name != "base" and 'base' in results and bench.name in results['base']:
+                    b_m = median(results['base'][bench.name]['times'])
+                    print(f"median: {m:.1f} +{overhead(m, b_m):.1f}%")
+                else:
+                    print(f"median: {m:.1f}")
 
                 # save after each benchmark, in case we abort running others
                 with open(BENCHMARK_JSON, 'w') as f:

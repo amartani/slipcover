@@ -72,7 +72,7 @@ run = [
 [tasks.benchmark]
 description = "Run benchmarks"
 run = [
-  "uv run --group benchmark -- python benchmarks/benchmarks.py run",
+  "uv run --config-setting 'build-args=--profile=release' --group benchmark -- python benchmarks/benchmarks.py run",
 ]
 
 [tasks.plot]
