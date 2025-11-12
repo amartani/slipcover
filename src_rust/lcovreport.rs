@@ -1,5 +1,5 @@
-use ahash::AHashMap;
 use crate::schemas::CoverageData;
+use ahash::AHashMap;
 use pyo3::prelude::*;
 use std::io::Write;
 use std::path::Path;

@@ -59,9 +59,12 @@ pub struct CoverageData {
 impl CoverageData {
     /// Create CoverageData from a Python dictionary
     #[staticmethod]
-    pub fn from_dict(py: Python, dict: &Bound<PyDict>) -> PyResult<Self> {
+    pub fn load_from_dict(dict_obj: &Bound<PyAny>) -> PyResult<Self> {
+        let dict = dict_obj.cast::<PyDict>()?;
+
         // Extract meta
-        let meta_dict = dict.get_item("meta")?
+        let meta_dict = dict
+            .get_item("meta")?
             .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'meta' key"))?;
         let meta_dict: &Bound<PyDict> = meta_dict.cast()?;
 
@@ -74,57 +77,79 @@ impl CoverageData {
         };
 
         // Extract files
-        let files_dict = dict.get_item("files")?
+        let files_dict = dict
+            .get_item("files")?
             .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'files' key"))?;
         let files_dict: &Bound<PyDict> = files_dict.cast()?;
 
         let mut files_map: AHashMap<String, FileData> = AHashMap::new();
         for (filename_obj, file_data_obj) in files_dict.iter() {
             let filename: String = filename_obj.extract().map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract filename: {}", e))
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                    "Failed to extract filename: {}",
+                    e
+                ))
             })?;
             let file_dict: &Bound<PyDict> = file_data_obj.cast().map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to cast file_data for {}: {}", filename, e))
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                    "Failed to cast file_data for {}: {}",
+                    filename, e
+                ))
             })?;
 
-            let executed_lines: Vec<i32> = file_dict.get_item("executed_lines")?.unwrap().extract().map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract executed_lines for {}: {}", filename, e))
-            })?;
-            let missing_lines: Vec<i32> = file_dict.get_item("missing_lines")?.unwrap().extract().map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract missing_lines for {}: {}", filename, e))
+            let executed_lines: Vec<i32> = file_dict
+                .get_item("executed_lines")?
+                .unwrap()
+                .extract()
+                .map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                        "Failed to extract executed_lines for {}: {}",
+                        filename, e
+                    ))
+                })?;
+            let missing_lines: Vec<i32> = file_dict
+                .get_item("missing_lines")?
+                .unwrap()
+                .extract()
+                .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                    "Failed to extract missing_lines for {}: {}",
+                    filename, e
+                ))
             })?;
 
             let (executed_branches, missing_branches) = if meta.branch_coverage
                 && file_dict.contains("executed_branches")?
                 && file_dict.contains("missing_branches")?
             {
-                // JSON deserializes arrays as lists, not tuples
-                // Extract as Vec<Vec<i32>> and convert to Vec<(i32, i32)>
-                let exec_br_lists: Vec<Vec<i32>> = file_dict
+                // JSON deserializes arrays as lists of lists, not lists of tuples
+                // Extract as Vec<Vec<i32>> first, then convert to Vec<(i32, i32)>
+                let exec_br_list: Vec<Vec<i32>> = file_dict
                     .get_item("executed_branches")?
                     .unwrap()
                     .extract()
                     .map_err(|e| {
-                        PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract executed_branches for {}: {}", filename, e))
+                        PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                            "Failed to extract executed_branches for {}: {}",
+                            filename, e
+                        ))
                     })?;
-                let exec_br: Vec<(i32, i32)> = exec_br_lists
-                    .into_iter()
-                    .map(|v| (v[0], v[1]))
-                    .collect();
 
-                let miss_br_lists: Vec<Vec<i32>> = file_dict
+                let miss_br_list: Vec<Vec<i32>> = file_dict
                     .get_item("missing_branches")?
                     .unwrap()
                     .extract()
                     .map_err(|e| {
-                        PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!("Failed to extract missing_branches for {}: {}", filename, e))
+                        PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                            "Failed to extract missing_branches for {}: {}",
+                            filename, e
+                        ))
                     })?;
-                let miss_br: Vec<(i32, i32)> = miss_br_lists
-                    .into_iter()
-                    .map(|v| (v[0], v[1]))
-                    .collect();
 
-                (exec_br, miss_br)
+                (
+                    exec_br_list.into_iter().map(|v| (v[0], v[1])).collect(),
+                    miss_br_list.into_iter().map(|v| (v[0], v[1])).collect(),
+                )
             } else {
                 (Vec::new(), Vec::new())
             };
@@ -135,33 +160,55 @@ impl CoverageData {
             let summary = FileSummary {
                 covered_lines: summary_dict.get_item("covered_lines")?.unwrap().extract()?,
                 missing_lines: summary_dict.get_item("missing_lines")?.unwrap().extract()?,
-                covered_branches: summary_dict.get_item("covered_branches")?.map(|v| v.extract()).transpose()?,
-                missing_branches: summary_dict.get_item("missing_branches")?.map(|v| v.extract()).transpose()?,
-                percent_covered: summary_dict.get_item("percent_covered")?.unwrap().extract()?,
+                covered_branches: summary_dict
+                    .get_item("covered_branches")?
+                    .map(|v| v.extract())
+                    .transpose()?,
+                missing_branches: summary_dict
+                    .get_item("missing_branches")?
+                    .map(|v| v.extract())
+                    .transpose()?,
+                percent_covered: summary_dict
+                    .get_item("percent_covered")?
+                    .unwrap()
+                    .extract()?,
             };
 
-            files_map.insert(filename, FileData {
-                coverage: FileCoverageData {
-                    executed_lines,
-                    missing_lines,
-                    executed_branches,
-                    missing_branches,
+            files_map.insert(
+                filename,
+                FileData {
+                    coverage: FileCoverageData {
+                        executed_lines,
+                        missing_lines,
+                        executed_branches,
+                        missing_branches,
+                    },
+                    summary,
                 },
-                summary,
-            });
+            );
         }
 
         // Extract summary
-        let summary_dict = dict.get_item("summary")?
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'summary' key"))?;
+        let summary_dict = dict.get_item("summary")?.ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'summary' key")
+        })?;
         let summary_dict: &Bound<PyDict> = summary_dict.cast()?;
 
         let summary = FileSummary {
             covered_lines: summary_dict.get_item("covered_lines")?.unwrap().extract()?,
             missing_lines: summary_dict.get_item("missing_lines")?.unwrap().extract()?,
-            covered_branches: summary_dict.get_item("covered_branches")?.map(|v| v.extract()).transpose()?,
-            missing_branches: summary_dict.get_item("missing_branches")?.map(|v| v.extract()).transpose()?,
-            percent_covered: summary_dict.get_item("percent_covered")?.unwrap().extract()?,
+            covered_branches: summary_dict
+                .get_item("covered_branches")?
+                .map(|v| v.extract())
+                .transpose()?,
+            missing_branches: summary_dict
+                .get_item("missing_branches")?
+                .map(|v| v.extract())
+                .transpose()?,
+            percent_covered: summary_dict
+                .get_item("percent_covered")?
+                .unwrap()
+                .extract()?,
         };
 
         Ok(CoverageData {

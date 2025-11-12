@@ -12,9 +12,7 @@ use chrono::SecondsFormat;
 use chrono::prelude::*;
 use pyo3::exceptions::{PyIOError, PyOSError};
 use pyo3::prelude::*;
-use pyo3::types::{
-    PyAny, PyCFunction, PyCode, PyCodeInput, PyDict, PyModule, PySet, PyTuple,
-};
+use pyo3::types::{PyAny, PyCFunction, PyCode, PyCodeInput, PyDict, PyModule, PySet, PyTuple};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -232,10 +230,7 @@ impl Covers {
         let mut files_map: AHashMap<String, FileData> = AHashMap::new();
         for (filename, coverage) in simplified_files_data {
             let summary = file_summaries.get(&filename).unwrap().clone();
-            files_map.insert(
-                filename,
-                FileData { coverage, summary },
-            );
+            files_map.insert(filename, FileData { coverage, summary });
         }
 
         // Create and return the CoverageData struct

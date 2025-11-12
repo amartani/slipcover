@@ -356,7 +356,7 @@ fn merge_coverage_files(py: Python, cli: &Cli) -> PyResult<i32> {
     )?;
 
     // Convert merged_dict to CoverageData for output functions
-    let coverage_data = crate::schemas::CoverageData::from_dict(py, merged_dict.bind(py))?;
+    let coverage_data = crate::schemas::CoverageData::load_from_dict(merged_dict.bind(py))?;
 
     if cli.xml {
         // XML output using Rust print_xml function
@@ -417,7 +417,7 @@ fn merge_coverage_files(py: Python, cli: &Cli) -> PyResult<i32> {
         let stdout = sys_module.getattr("stdout")?;
 
         // Convert merged_dict to CoverageData
-        let coverage_data = crate::schemas::CoverageData::from_dict(py, merged_dict.bind(py))?;
+        let coverage_data = crate::schemas::CoverageData::load_from_dict(merged_dict.bind(py))?;
 
         // Use Rust print_coverage function
         print_coverage(

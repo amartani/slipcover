@@ -60,7 +60,7 @@ def get_coverage(sci):
 
     if input_tmpfiles:
         # Convert CoverageData to dict for merging
-        if hasattr(cov, 'to_dict'):
+        if hasattr(cov, "to_dict"):
             cov_dict = cov.to_dict()
         else:
             cov_dict = cov
@@ -84,7 +84,7 @@ def get_coverage(sci):
                     pass
 
         # Convert back to CoverageData if we had input files
-        cov = sc.CoverageData.from_dict(cov_dict)
+        cov = sc.CoverageData.load_from_dict(cov_dict)
 
     return cov
 
@@ -104,7 +104,7 @@ def exit_shim(sci):
                 with open(output_tmpfile, "w", encoding="utf-8") as f:
                     cov = get_coverage(sci)
                     # Convert CoverageResults to dict for JSON serialization
-                    if hasattr(cov, 'to_dict'):
+                    if hasattr(cov, "to_dict"):
                         cov = cov.to_dict()
                     json.dump(cov, f)
             except (OSError, ValueError):

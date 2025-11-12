@@ -1,5 +1,5 @@
-use ahash::{AHashMap, AHashSet};
 use crate::schemas::CoverageData;
+use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
 use quick_xml::Writer;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
