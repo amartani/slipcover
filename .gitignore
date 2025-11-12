@@ -9,6 +9,7 @@ dist/
 *.swp
 /target/
 .claude/settings.local.json
+.venv/
 
 # Coverage files
 coverage.lcov
