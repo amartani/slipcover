@@ -65,6 +65,7 @@ fn covers_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PathSimplifier>()?;
     m.add_class::<Covers>()?;
     m.add_class::<FileMatcher>()?;
+    m.add_class::<schemas::CoverageData>()?;
 
     // Bytecode classes
     m.add_class::<Branch>()?;

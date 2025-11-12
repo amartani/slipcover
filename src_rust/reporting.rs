@@ -1,7 +1,7 @@
 // Coverage reporting functionality
 // Based on the original Python covers.py module (reporting part)
 
-use crate::schemas::{FileCoverageData, FileSummary};
+use crate::schemas::{CoverageData, FileCoverageData, FileSummary};
 use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyModule};
@@ -126,44 +126,34 @@ struct SimpleCoverageRow {
 #[pyo3(signature = (coverage, outfile=None, missing_width=None, skip_covered=false))]
 pub fn print_coverage(
     py: Python,
-    coverage: &Bound<PyDict>,
+    coverage: &CoverageData,
     outfile: Option<Py<PyAny>>,
     missing_width: Option<usize>,
     skip_covered: bool,
 ) -> PyResult<()> {
-    // Get files from coverage
-    let files = match coverage.get_item("files")? {
-        Some(f) if !f.is_empty()? => f,
-        _ => return Ok(()), // No files to report
-    };
-    let files_dict: &Bound<PyDict> = files.cast()?;
-
-    // Check if branch coverage is enabled
-    let mut branch_coverage = false;
-    if let Some(meta) = coverage.get_item("meta")?
-        && let Ok(bc) = meta.get_item("branch_coverage")
-    {
-        branch_coverage = bc.extract::<bool>().unwrap_or(false);
+    // Return early if no files
+    if coverage.files.is_empty() {
+        return Ok(());
     }
 
-    // Collect rows
-    let mut files_vec: Vec<(String, Py<PyAny>)> = files_dict
-        .iter()
-        .map(|(k, v)| (k.extract::<String>().unwrap(), v.into()))
-        .collect();
-    files_vec.sort_by(|a, b| a.0.cmp(&b.0));
+    // Check if branch coverage is enabled
+    let branch_coverage = coverage.meta.branch_coverage;
+
+    // Collect and sort file names
+    let mut files_vec: Vec<&String> = coverage.files.keys().collect();
+    files_vec.sort();
 
     let table_str = if branch_coverage {
         let mut rows: Vec<CoverageRow> = Vec::new();
 
-        for (filename, f_info_py) in files_vec {
-            let f_info: &Bound<PyDict> = f_info_py.bind(py).cast()?;
+        for filename in files_vec {
+            let file_data = &coverage.files[filename];
 
-            let exec_l = f_info.get_item("executed_lines")?.unwrap().len()?;
-            let miss_l = f_info.get_item("missing_lines")?.unwrap().len()?;
+            let exec_l = file_data.coverage.executed_lines.len();
+            let miss_l = file_data.coverage.missing_lines.len();
 
-            let exec_b = f_info.get_item("executed_branches")?.unwrap().len()?;
-            let miss_b = f_info.get_item("missing_branches")?.unwrap().len()?;
+            let exec_b = file_data.coverage.executed_branches.len();
+            let miss_b = file_data.coverage.missing_branches.len();
             let total_b = exec_b + miss_b;
             let pct_b = if total_b > 0 {
                 (100 * exec_b) / total_b
@@ -171,32 +161,18 @@ pub fn print_coverage(
                 0
             };
 
-            let summary = f_info.get_item("summary")?.unwrap();
-            let summary_dict: &Bound<PyDict> = summary.cast()?;
-            let pct: f64 = summary_dict
-                .get_item("percent_covered")?
-                .unwrap()
-                .extract()?;
+            let pct = file_data.summary.percent_covered;
 
             if skip_covered && (pct - 100.0).abs() < 0.01 {
                 continue;
             }
 
             // Get missing info
-            let missing_lines_list = f_info.get_item("missing_lines")?.unwrap();
-            let missing_lines: Vec<i32> = missing_lines_list.extract()?;
-
-            let executed_lines_list = f_info.get_item("executed_lines")?.unwrap();
-            let executed_lines: Vec<i32> = executed_lines_list.extract()?;
-
-            let missing_branches = if let Some(mb) = f_info.get_item("missing_branches")? {
-                let mb_list: Vec<Vec<i32>> = mb.extract()?;
-                mb_list.into_iter().map(|v| (v[0], v[1])).collect()
-            } else {
-                Vec::new()
-            };
-
-            let missing_str = format_missing(&missing_lines, &executed_lines, &missing_branches);
+            let missing_str = format_missing(
+                &file_data.coverage.missing_lines,
+                &file_data.coverage.executed_lines,
+                &file_data.coverage.missing_branches,
+            );
             let truncated_missing = if let Some(width) = missing_width {
                 if missing_str.len() > width {
                     format!("{}...", &missing_str[..width.saturating_sub(3)])
@@ -208,7 +184,7 @@ pub fn print_coverage(
             };
 
             rows.push(CoverageRow {
-                file: filename,
+                file: filename.clone(),
                 lines: (exec_l + miss_l).to_string(),
                 lines_miss: miss_l.to_string(),
                 branches: total_b.to_string(),
@@ -220,26 +196,12 @@ pub fn print_coverage(
         }
 
         // Add summary if multiple files
-        if files_dict.len() > 1 {
-            let summary = coverage.get_item("summary")?.unwrap();
-            let summary_dict: &Bound<PyDict> = summary.cast()?;
-
-            let s_covered_lines: i32 =
-                summary_dict.get_item("covered_lines")?.unwrap().extract()?;
-            let s_missing_lines: i32 =
-                summary_dict.get_item("missing_lines")?.unwrap().extract()?;
-            let s_covered_branches: i32 = summary_dict
-                .get_item("covered_branches")?
-                .unwrap()
-                .extract()?;
-            let s_missing_branches: i32 = summary_dict
-                .get_item("missing_branches")?
-                .unwrap()
-                .extract()?;
-            let s_percent: f64 = summary_dict
-                .get_item("percent_covered")?
-                .unwrap()
-                .extract()?;
+        if coverage.files.len() > 1 {
+            let s_covered_lines = coverage.summary.covered_lines;
+            let s_missing_lines = coverage.summary.missing_lines;
+            let s_covered_branches = coverage.summary.covered_branches.unwrap_or(0);
+            let s_missing_branches = coverage.summary.missing_branches.unwrap_or(0);
+            let s_percent = coverage.summary.percent_covered;
 
             let total_b = s_covered_branches + s_missing_branches;
             let pct_b = if total_b > 0 {
@@ -281,33 +243,26 @@ pub fn print_coverage(
     } else {
         let mut rows: Vec<SimpleCoverageRow> = Vec::new();
 
-        for (filename, f_info_py) in files_vec {
-            let f_info: &Bound<PyDict> = f_info_py.bind(py).cast()?;
+        for filename in files_vec {
+            let file_data = &coverage.files[filename];
 
-            let exec_l = f_info.get_item("executed_lines")?.unwrap().len()?;
-            let miss_l = f_info.get_item("missing_lines")?.unwrap().len()?;
+            let exec_l = file_data.coverage.executed_lines.len();
+            let miss_l = file_data.coverage.missing_lines.len();
 
-            let summary = f_info.get_item("summary")?.unwrap();
-            let summary_dict: &Bound<PyDict> = summary.cast()?;
-            let pct: f64 = summary_dict
-                .get_item("percent_covered")?
-                .unwrap()
-                .extract()?;
+            let pct = file_data.summary.percent_covered;
 
             if skip_covered && (pct - 100.0).abs() < 0.01 {
                 continue;
             }
 
             // Get missing info
-            let missing_lines_list = f_info.get_item("missing_lines")?.unwrap();
-            let missing_lines: Vec<i32> = missing_lines_list.extract()?;
-
-            let executed_lines_list = f_info.get_item("executed_lines")?.unwrap();
-            let executed_lines: Vec<i32> = executed_lines_list.extract()?;
-
             let missing_branches: Vec<(i32, i32)> = Vec::new();
 
-            let missing_str = format_missing(&missing_lines, &executed_lines, &missing_branches);
+            let missing_str = format_missing(
+                &file_data.coverage.missing_lines,
+                &file_data.coverage.executed_lines,
+                &missing_branches,
+            );
             let truncated_missing = if let Some(width) = missing_width {
                 if missing_str.len() > width {
                     format!("{}...", &missing_str[..width.saturating_sub(3)])
@@ -319,7 +274,7 @@ pub fn print_coverage(
             };
 
             rows.push(SimpleCoverageRow {
-                file: filename,
+                file: filename.clone(),
                 lines: (exec_l + miss_l).to_string(),
                 lines_miss: miss_l.to_string(),
                 coverage: pct.round().to_string(),
@@ -328,18 +283,10 @@ pub fn print_coverage(
         }
 
         // Add summary if multiple files
-        if files_dict.len() > 1 {
-            let summary = coverage.get_item("summary")?.unwrap();
-            let summary_dict: &Bound<PyDict> = summary.cast()?;
-
-            let s_covered_lines: i32 =
-                summary_dict.get_item("covered_lines")?.unwrap().extract()?;
-            let s_missing_lines: i32 =
-                summary_dict.get_item("missing_lines")?.unwrap().extract()?;
-            let s_percent: f64 = summary_dict
-                .get_item("percent_covered")?
-                .unwrap()
-                .extract()?;
+        if coverage.files.len() > 1 {
+            let s_covered_lines = coverage.summary.covered_lines;
+            let s_missing_lines = coverage.summary.missing_lines;
+            let s_percent = coverage.summary.percent_covered;
 
             rows.push(SimpleCoverageRow {
                 file: "---".to_string(),

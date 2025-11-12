@@ -57,7 +57,14 @@ def get_coverage(sci):
     global input_tmpfiles, output_tmpfile
 
     cov = sci.get_coverage()
+
     if input_tmpfiles:
+        # Convert CoverageData to dict for merging
+        if hasattr(cov, "to_dict"):
+            cov_dict = cov.to_dict()
+        else:
+            cov_dict = cov
+
         for fname in input_tmpfiles:
             try:
                 with open(fname, "r", encoding="utf-8") as f:
@@ -65,7 +72,7 @@ def get_coverage(sci):
                     # If the file is empty, it was likely closed, possibly upon exec
                     if f.tell() != 0:
                         f.seek(0)
-                        sc.merge_coverage(cov, json.load(f))
+                        cov_dict = sc.merge_coverage(cov_dict, json.load(f))
             except (json.JSONDecodeError, OSError, ValueError) as e:
                 # OSError/ValueError can occur if the file was corrupted or deleted
                 if isinstance(e, json.JSONDecodeError):
@@ -75,6 +82,9 @@ def get_coverage(sci):
                     os.remove(fname)
                 except (FileNotFoundError, OSError):
                     pass
+
+        # Convert back to CoverageData if we had input files
+        cov = sc.CoverageData.load_from_dict(cov_dict)
 
     return cov
 
@@ -92,7 +102,11 @@ def exit_shim(sci):
         if output_tmpfile:
             try:
                 with open(output_tmpfile, "w", encoding="utf-8") as f:
-                    json.dump(get_coverage(sci), f)
+                    cov = get_coverage(sci)
+                    # Convert CoverageResults to dict for JSON serialization
+                    if hasattr(cov, "to_dict"):
+                        cov = cov.to_dict()
+                    json.dump(cov, f)
             except (OSError, ValueError):
                 # File may not be writable if descriptor was closed (e.g., via closerange)
                 pass

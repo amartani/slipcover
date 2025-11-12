@@ -1,6 +1,6 @@
+use crate::schemas::CoverageData;
 use ahash::{AHashMap, AHashSet};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use quick_xml::Writer;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use std::collections::BTreeMap;
@@ -330,7 +330,7 @@ fn write_file_xml<W: Write>(
 #[pyo3(signature = (coverage, source_paths, *, with_branches=false, xml_package_depth=99, outfile=None))]
 pub fn print_xml(
     py: Python,
-    coverage: &Bound<PyDict>,
+    coverage: &CoverageData,
     source_paths: Vec<String>,
     with_branches: bool,
     xml_package_depth: i32,
@@ -344,63 +344,23 @@ pub fn print_xml(
         }
     }
 
-    // Get files from coverage
-    let files = coverage
-        .get_item("files")
-        .map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Missing 'files' key: {}", e))
-        })?
-        .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'files' key"))?;
-    let files_dict: &Bound<PyDict> = files
-        .cast()
-        .map_err(|_| PyErr::new::<pyo3::exceptions::PyTypeError, _>("'files' must be a dict"))?;
-
     // Process each file and collect into packages
     let mut packages: BTreeMap<String, PackageData> = BTreeMap::new();
 
-    for (file_path_obj, file_data_obj) in files_dict.iter() {
-        let file_path: String = file_path_obj.extract()?;
-        let file_data: &Bound<PyDict> = file_data_obj.cast().map_err(|_| {
-            PyErr::new::<pyo3::exceptions::PyTypeError, _>("File data must be a dict")
-        })?;
-
-        // Extract data
-        let executed_lines: Vec<i32> = file_data
-            .get_item("executed_lines")?
-            .ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'executed_lines'")
-            })?
-            .extract()?;
-        let missing_lines: Vec<i32> = file_data
-            .get_item("missing_lines")?
-            .ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'missing_lines'")
-            })?
-            .extract()?;
-
+    for (file_path, file_data) in &coverage.files {
         let (executed_branches, missing_branches) = if with_branches {
-            let eb_list = file_data.get_item("executed_branches")?.ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'executed_branches'")
-            })?;
-            let mb_list = file_data.get_item("missing_branches")?.ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>("Missing 'missing_branches'")
-            })?;
-
-            let eb: Vec<Vec<i32>> = eb_list.extract()?;
-            let mb: Vec<Vec<i32>> = mb_list.extract()?;
-
-            let executed_branches: Vec<(i32, i32)> = eb.into_iter().map(|v| (v[0], v[1])).collect();
-            let missing_branches: Vec<(i32, i32)> = mb.into_iter().map(|v| (v[0], v[1])).collect();
-
-            (executed_branches, missing_branches)
+            (
+                file_data.coverage.executed_branches.clone(),
+                file_data.coverage.missing_branches.clone(),
+            )
         } else {
             (Vec::new(), Vec::new())
         };
 
         let file_info = FileInfo {
-            file_path,
-            executed_lines,
-            missing_lines,
+            file_path: file_path.clone(),
+            executed_lines: file_data.coverage.executed_lines.clone(),
+            missing_lines: file_data.coverage.missing_lines.clone(),
             executed_branches,
             missing_branches,
         };

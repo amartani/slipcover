@@ -1,6 +1,6 @@
+use crate::schemas::CoverageData;
 use ahash::AHashMap;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use std::io::Write;
 use std::path::Path;
 
@@ -106,63 +106,28 @@ fn get_branch_data_by_line(
 #[pyfunction(signature = (coverage, source_paths, *, with_branches=false, outfile=None))]
 pub fn print_lcov(
     py: Python,
-    coverage: &Bound<'_, PyDict>,
+    coverage: &CoverageData,
     source_paths: Vec<String>,
     with_branches: bool,
     outfile: Option<Py<PyAny>>,
 ) -> PyResult<()> {
-    // Parse coverage data
-    let files_dict = coverage.get_item("files")?.ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyKeyError, _>("'files' key not found in coverage")
-    })?;
-    let files_dict: &Bound<'_, PyDict> = files_dict
-        .cast()
-        .map_err(|_| PyErr::new::<pyo3::exceptions::PyTypeError, _>("'files' must be a dict"))?;
-
+    // Parse coverage data from CoverageData struct
     let mut file_infos: Vec<FileInfo> = Vec::new();
 
-    for (file_path_obj, file_data_obj) in files_dict.iter() {
-        let file_path: String = file_path_obj.extract()?;
-        let file_data: &Bound<'_, PyDict> = file_data_obj.cast().map_err(|_| {
-            PyErr::new::<pyo3::exceptions::PyTypeError, _>("file data must be a dict")
-        })?;
-
-        let executed_lines: Vec<i32> = file_data
-            .get_item("executed_lines")?
-            .ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>("'executed_lines' not found")
-            })?
-            .extract()?;
-
-        let missing_lines: Vec<i32> = file_data
-            .get_item("missing_lines")?
-            .ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>("'missing_lines' not found")
-            })?
-            .extract()?;
-
+    for (file_path, file_data) in &coverage.files {
         let (executed_branches, missing_branches) = if with_branches {
-            let exec_branches: Vec<(i32, i32)> = file_data
-                .get_item("executed_branches")?
-                .map(|v| v.extract())
-                .transpose()?
-                .unwrap_or_default();
-
-            let miss_branches: Vec<(i32, i32)> = file_data
-                .get_item("missing_branches")?
-                .map(|v| v.extract())
-                .transpose()?
-                .unwrap_or_default();
-
-            (exec_branches, miss_branches)
+            (
+                file_data.coverage.executed_branches.clone(),
+                file_data.coverage.missing_branches.clone(),
+            )
         } else {
             (Vec::new(), Vec::new())
         };
 
         file_infos.push(FileInfo {
-            file_path,
-            executed_lines,
-            missing_lines,
+            file_path: file_path.clone(),
+            executed_lines: file_data.coverage.executed_lines.clone(),
+            missing_lines: file_data.coverage.missing_lines.clone(),
             executed_branches,
             missing_branches,
         });
