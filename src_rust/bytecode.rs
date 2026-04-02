@@ -597,13 +597,7 @@ impl LineEntry {
         for line_py in lines {
             let line = line_py.borrow(py);
 
-            if line.number.is_none() {
-                let mut bytecodes = (line.end - prev_end) / 2;
-                while bytecodes > 0 {
-                    linetable.push(0x80 | (15 << 3) | (std::cmp::min(bytecodes, 8) - 1) as u8);
-                    bytecodes -= 8;
-                }
-            } else {
+            if let Some(number) = line.number {
                 if prev_end < line.start {
                     let mut bytecodes = (line.start - prev_end) / 2;
                     while bytecodes > 0 {
@@ -612,7 +606,7 @@ impl LineEntry {
                     }
                 }
 
-                let mut line_delta = line.number.unwrap() - prev_number;
+                let mut line_delta = number - prev_number;
                 let mut bytecodes = (line.end - line.start) / 2;
                 while bytecodes > 0 {
                     linetable.push(0x80 | (13 << 3) | (std::cmp::min(bytecodes, 8) - 1) as u8);
@@ -621,7 +615,13 @@ impl LineEntry {
                     bytecodes -= 8;
                 }
 
-                prev_number = line.number.unwrap();
+                prev_number = number;
+            } else {
+                let mut bytecodes = (line.end - prev_end) / 2;
+                while bytecodes > 0 {
+                    linetable.push(0x80 | (15 << 3) | (std::cmp::min(bytecodes, 8) - 1) as u8);
+                    bytecodes -= 8;
+                }
             }
 
             prev_end = line.end;
