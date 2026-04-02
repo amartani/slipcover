@@ -4,7 +4,19 @@
 version = "0.9.13"
 backend = "aqua:tombi-toml/tombi"
 
+[tools."aqua:tombi-toml/tombi"."platforms.linux-arm64"]
+checksum = "sha256:db2bf291f42193a4bd5aebbddd37f1154f7a179b8952ea1ca20290800f0d344d"
+url = "https://github.com/tombi-toml/tombi/releases/download/v0.9.13/tombi-cli-0.9.13-aarch64-unknown-linux-musl.gz"
+
+[tools."aqua:tombi-toml/tombi"."platforms.linux-arm64-musl"]
+checksum = "sha256:db2bf291f42193a4bd5aebbddd37f1154f7a179b8952ea1ca20290800f0d344d"
+url = "https://github.com/tombi-toml/tombi/releases/download/v0.9.13/tombi-cli-0.9.13-aarch64-unknown-linux-musl.gz"
+
 [tools."aqua:tombi-toml/tombi"."platforms.linux-x64"]
+checksum = "sha256:55023b6a24f12c5be2fb6dd826a5f3763e701d4175352619518ac5092540d61a"
+url = "https://github.com/tombi-toml/tombi/releases/download/v0.9.13/tombi-cli-0.9.13-x86_64-unknown-linux-musl.gz"
+
+[tools."aqua:tombi-toml/tombi"."platforms.linux-x64-musl"]
 checksum = "sha256:55023b6a24f12c5be2fb6dd826a5f3763e701d4175352619518ac5092540d61a"
 url = "https://github.com/tombi-toml/tombi/releases/download/v0.9.13/tombi-cli-0.9.13-x86_64-unknown-linux-musl.gz"
 
@@ -24,10 +36,28 @@ url = "https://github.com/tombi-toml/tombi/releases/download/v0.9.13/tombi-cli-0
 version = "0.8.5"
 backend = "github:taiki-e/cargo-llvm-cov"
 
+[tools."github:taiki-e/cargo-llvm-cov"."platforms.linux-arm64"]
+checksum = "sha256:8248a6d5dcb47307c2ef6d5815f90bca07d04a6f1acd06b658f689cb2d8247d9"
+url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.8.5/cargo-llvm-cov-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/taiki-e/cargo-llvm-cov/releases/assets/377827059"
+provenance = "github-attestations"
+
+[tools."github:taiki-e/cargo-llvm-cov"."platforms.linux-arm64-musl"]
+checksum = "sha256:bc14a4551e633b12ec89bb15469e6099b4ddc998a5d1bcad0fd95320b148a40f"
+url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.8.5/cargo-llvm-cov-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/taiki-e/cargo-llvm-cov/releases/assets/377827106"
+provenance = "github-attestations"
+
 [tools."github:taiki-e/cargo-llvm-cov"."platforms.linux-x64"]
 checksum = "sha256:7e62d664f5133d43d33a3b11138c93feff98bd71e953ddc260ea8ddf360a37c6"
 url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.8.5/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz"
 url_api = "https://api.github.com/repos/taiki-e/cargo-llvm-cov/releases/assets/377825273"
+provenance = "github-attestations"
+
+[tools."github:taiki-e/cargo-llvm-cov"."platforms.linux-x64-musl"]
+checksum = "sha256:e9fc23dbbdc502ee9267544f8c6e8e162c6d7df8fb2e3f62d8289a4c0bd240ce"
+url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.8.5/cargo-llvm-cov-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/taiki-e/cargo-llvm-cov/releases/assets/377826123"
 provenance = "github-attestations"
 
 [tools."github:taiki-e/cargo-llvm-cov"."platforms.macos-arm64"]
@@ -52,7 +82,22 @@ provenance = "github-attestations"
 version = "3.12.13"
 backend = "core:python"
 
+[tools.python."platforms.linux-arm64"]
+checksum = "sha256:ef7d9c8ffb3dc5d0d8c37150cb69145aee50f5d6a8a8709c6fffbe10868bb815"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.12.13+20260324-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-arm64-musl"]
+checksum = "sha256:ef7d9c8ffb3dc5d0d8c37150cb69145aee50f5d6a8a8709c6fffbe10868bb815"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.12.13+20260324-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
 [tools.python."platforms.linux-x64"]
+checksum = "sha256:1f464e6d344fc75d557fff07b78cd3740d0a33addc15f3dbfc0816a05b032e75"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.12.13+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-x64-musl"]
 checksum = "sha256:1f464e6d344fc75d557fff07b78cd3740d0a33addc15f3dbfc0816a05b032e75"
 url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.12.13+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 provenance = "github-attestations"
@@ -73,34 +118,25 @@ url = "https://github.com/astral-sh/python-build-standalone/releases/download/20
 provenance = "github-attestations"
 
 [[tools.python]]
-version = "3.14.3"
-backend = "core:python"
-
-[tools.python."platforms.linux-x64"]
-checksum = "sha256:d7a9f970914bb4c88756fe3bdcc186d4feb90e9500e54f1db47dae4dc9687e39"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
-provenance = "github-attestations"
-
-[tools.python."platforms.macos-arm64"]
-checksum = "sha256:c43aecde4a663aebff99b9b83da0efec506479f1c3f98331442f33d2c43501f9"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-aarch64-apple-darwin-install_only_stripped.tar.gz"
-provenance = "github-attestations"
-
-[tools.python."platforms.macos-x64"]
-checksum = "sha256:9ab41dbc2f100a2a45d1833b9c11165f51051c558b5213eda9a9731d5948a0c0"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-apple-darwin-install_only_stripped.tar.gz"
-provenance = "github-attestations"
-
-[tools.python."platforms.windows-x64"]
-checksum = "sha256:bbe19034b35b0267176a7442575ae7dc6343480fd4d35598cb7700173d431e09"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
-provenance = "github-attestations"
-
-[[tools.python]]
 version = "3.13.12"
 backend = "core:python"
 
+[tools.python."platforms.linux-arm64"]
+checksum = "sha256:8abd16da242b56902a13ba1d6e3aaa0d6d19dfc71547f04e437f707fde179915"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.13.12+20260324-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-arm64-musl"]
+checksum = "sha256:8abd16da242b56902a13ba1d6e3aaa0d6d19dfc71547f04e437f707fde179915"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.13.12+20260324-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
 [tools.python."platforms.linux-x64"]
+checksum = "sha256:91c8920a197c3f7c562612eb4537e18e0c52c1c918bb39912cbd0b1b3c154229"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.13.12+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-x64-musl"]
 checksum = "sha256:91c8920a197c3f7c562612eb4537e18e0c52c1c918bb39912cbd0b1b3c154229"
 url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.13.12+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 provenance = "github-attestations"
@@ -120,11 +156,63 @@ checksum = "sha256:b11194bd12122df60e24b08a71a4e5aaa1d15c2cf436f7f4f57bbea4f9a80
 url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.13.12+20260324-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
 provenance = "github-attestations"
 
+[[tools.python]]
+version = "3.14.3"
+backend = "core:python"
+
+[tools.python."platforms.linux-arm64"]
+checksum = "sha256:53700338695e402a1a1fe22be4a41fbdacc70e22bb308a48eca8ed67cb7992be"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-arm64-musl"]
+checksum = "sha256:53700338695e402a1a1fe22be4a41fbdacc70e22bb308a48eca8ed67cb7992be"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-x64"]
+checksum = "sha256:d7a9f970914bb4c88756fe3bdcc186d4feb90e9500e54f1db47dae4dc9687e39"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.linux-x64-musl"]
+checksum = "sha256:d7a9f970914bb4c88756fe3bdcc186d4feb90e9500e54f1db47dae4dc9687e39"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.macos-arm64"]
+checksum = "sha256:c43aecde4a663aebff99b9b83da0efec506479f1c3f98331442f33d2c43501f9"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-aarch64-apple-darwin-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.macos-x64"]
+checksum = "sha256:9ab41dbc2f100a2a45d1833b9c11165f51051c558b5213eda9a9731d5948a0c0"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-apple-darwin-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
+[tools.python."platforms.windows-x64"]
+checksum = "sha256:bbe19034b35b0267176a7442575ae7dc6343480fd4d35598cb7700173d431e09"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260324/cpython-3.14.3+20260324-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+provenance = "github-attestations"
+
 [[tools.ruff]]
 version = "0.15.8"
 backend = "aqua:astral-sh/ruff"
 
+[tools.ruff."platforms.linux-arm64"]
+checksum = "sha256:15e6a6c21696bbe59c56d0f1c437452b960bcdfe81ecc3bc19fa89e6a7d70eb6"
+url = "https://github.com/astral-sh/ruff/releases/download/0.15.8/ruff-aarch64-unknown-linux-musl.tar.gz"
+
+[tools.ruff."platforms.linux-arm64-musl"]
+checksum = "sha256:15e6a6c21696bbe59c56d0f1c437452b960bcdfe81ecc3bc19fa89e6a7d70eb6"
+url = "https://github.com/astral-sh/ruff/releases/download/0.15.8/ruff-aarch64-unknown-linux-musl.tar.gz"
+
 [tools.ruff."platforms.linux-x64"]
+checksum = "sha256:d541beae99d550ed4abb3a1d026b907886c7cdf44a533b24624871e3d8c81330"
+url = "https://github.com/astral-sh/ruff/releases/download/0.15.8/ruff-x86_64-unknown-linux-musl.tar.gz"
+provenance = "github-attestations"
+
+[tools.ruff."platforms.linux-x64-musl"]
 checksum = "sha256:d541beae99d550ed4abb3a1d026b907886c7cdf44a533b24624871e3d8c81330"
 url = "https://github.com/astral-sh/ruff/releases/download/0.15.8/ruff-x86_64-unknown-linux-musl.tar.gz"
 
@@ -148,7 +236,20 @@ backend = "core:rust"
 version = "0.11.3"
 backend = "aqua:astral-sh/uv"
 
+[tools.uv."platforms.linux-arm64"]
+checksum = "sha256:8ecec82cb9a744d5fabff6d16d7777218a7730f699d2aa0d2f751c17858e2efa"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.3/uv-aarch64-unknown-linux-musl.tar.gz"
+
+[tools.uv."platforms.linux-arm64-musl"]
+checksum = "sha256:8ecec82cb9a744d5fabff6d16d7777218a7730f699d2aa0d2f751c17858e2efa"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.3/uv-aarch64-unknown-linux-musl.tar.gz"
+
 [tools.uv."platforms.linux-x64"]
+checksum = "sha256:8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.3/uv-x86_64-unknown-linux-musl.tar.gz"
+provenance = "github-attestations"
+
+[tools.uv."platforms.linux-x64-musl"]
 checksum = "sha256:8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e"
 url = "https://github.com/astral-sh/uv/releases/download/0.11.3/uv-x86_64-unknown-linux-musl.tar.gz"
 
