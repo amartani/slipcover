@@ -1,8 +1,10 @@
 [tools]
-ruff = "0.14"
-python = "3.14"
+python = ["3.14", "3.13", "3.12"]
+ruff = "latest"
 uv = "latest"
-rust = { version = "1.91", profile = "default", components = "llvm-tools-preview" }
+rust = { version = "latest", profile = "default", components = "llvm-tools-preview" }
+"aqua:tombi-toml/tombi" = "latest"
+"github:taiki-e/cargo-llvm-cov" = "latest"
 
 [tasks.python_lint]
 description = "Run Python linting with ruff"
@@ -20,7 +22,6 @@ run = [
 
 [tasks.toml_lint]
 description = "Run toml formatting with tombi"
-tools."aqua:tombi-toml/tombi" = "latest"
 run = "tombi format"
 
 [tasks.lint]
@@ -83,7 +84,6 @@ run = [
 
 [tasks.coverage]
 description = "Run code coverage for Python and Rust"
-tools."github:taiki-e/cargo-llvm-cov" = "latest"
 run = '''
   # Clean up old coverage files
   rm -f coverage_py.lcov coverage_rust.lcov coverage.lcov
