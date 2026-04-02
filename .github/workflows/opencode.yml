@@ -27,6 +27,8 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v3
+        env:
+          MISE_LOCKED: 1
 
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
