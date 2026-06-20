@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install mise
         uses: jdx/mise-action@v4
@@ -39,7 +39,7 @@ jobs:
           MISE_LOCKED: 1
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.lcov
           use_oidc: true
